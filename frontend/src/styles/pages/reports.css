@@ -1,0 +1,125 @@
+/* 报告列表与研究正文 */
+.report-list__item {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 23px 0;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.report-list__item:last-child {
+  border-bottom: 0;
+}
+
+.report-list__date {
+  background: #f4f7fa;
+  border-radius: 7px;
+  min-width: 64px;
+  padding: 11px;
+  text-align: center;
+}
+
+.report-list__date strong {
+  display: block;
+  font-size: 23px;
+  font-weight: 500;
+}
+
+.report-list__date span {
+  display: block;
+  font-size: 10px;
+  color: #9ca8b8;
+  margin-top: 5px;
+}
+
+.report-list__body {
+  flex: 1;
+}
+
+.report-list__body h3 {
+  font-size: 14px;
+  font-weight: 550;
+  margin: 0 0 10px;
+}
+
+.report-list__body p {
+  color: #97a3b3;
+  font-size: 11px;
+  margin: 0;
+}
+
+.report-list__arrow {
+  color: #95a6b9;
+}
+
+.report-document {
+  background: white;
+  border: 1px solid #e3e9f0;
+  border-radius: 10px;
+  max-width: 980px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 42px 54px;
+}
+
+.report-document__header {
+  padding-bottom: 25px;
+  border-bottom: 1px solid #e9edf3;
+}
+
+.report-document__header h2 {
+  font-size: 25px;
+  margin: 19px 0 14px;
+  font-weight: 550;
+}
+
+.report-document__header p {
+  font-size: 11px;
+  color: #7e8ea2;
+  margin: 0;
+}
+
+.report-summary {
+  margin: 28px 0;
+  padding: 23px;
+  background: #f4f8fa;
+  border-left: 3px solid #7395a7;
+}
+
+.report-summary p {
+  font-size: 15px;
+  line-height: 1.9;
+  margin: 0;
+}
+
+.report-section {
+  margin-top: 28px;
+}
+
+.report-section h3 {
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.report-section p,
+.report-section li {
+  font-size: 13px;
+  line-height: 1.9;
+  color: #7c8a9d;
+}
+
+.report-section ul {
+  padding-left: 20px;
+}
+
+.report-evidence {
+  border-top: 1px solid #e9edf3;
+  margin-top: 32px;
+  padding-top: 20px;
+}
+
+.report-evidence summary {
+  color: #72879b;
+  cursor: pointer;
+  font-size: 12px;
+}

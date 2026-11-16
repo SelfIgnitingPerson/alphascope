@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.fundamental.mapper.ForecastMapper">
+  <insert id="save" parameterType="com.alphascope.fundamental.entity.EarningsForecastSnapshot">
+    <![CDATA[
+    INSERT IGNORE INTO earnings_forecast_snapshot(instrument_id, observation_date, available_at,
+      source, source_url, content_hash, metrics_json, raw_json, fetched_at)
+    VALUES(#{instrumentId}, #{observationDate}, #{availableAt}, 'EASTMONEY_PUBLIC', #{sourceUrl}, #{contentHash}, #{metricsJson}, #{rawJson},
+      #{availableAt})
+    ]]>
+  </insert>
+
+  <select id="visible" resultType="com.alphascope.fundamental.entity.EarningsForecastSnapshot">
+    <![CDATA[
+    SELECT
+      f.id,
+      f.instrument_id,
+      f.observation_date,
+      f.available_at,
+      f.source,
+      f.source_url,
+      f.content_hash,
+      f.metrics_json,
+      f.raw_json,
+      f.fetched_at
+    FROM earnings_forecast_snapshot f
+    JOIN instrument i
+      ON i.id=f.instrument_id
+    WHERE i.symbol=#{symbol}
+      AND f.available_at<=#{cutoff}
+    ORDER BY f.available_at DESC, f.id DESC
+    LIMIT 30
+    ]]>
+  </select>
+</mapper>

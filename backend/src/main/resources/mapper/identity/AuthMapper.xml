@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.identity.mapper.AuthMapper">
+ <select id="byName" resultType="com.alphascope.identity.entity.AppUser">SELECT id,username,password_hash,role,status,created_at FROM app_user WHERE username=#{username}</select>
+ <select id="byId" resultType="com.alphascope.identity.entity.AppUser">SELECT id,username,role,status,created_at FROM app_user WHERE id=#{id}</select>
+ <insert id="create" useGeneratedKeys="true" keyProperty="id">INSERT INTO app_user(username,password_hash,role,status) VALUES(#{username},#{passwordHash},'USER','ACTIVE')</insert>
+ <update id="bootstrap">UPDATE app_user SET username=#{username},password_hash=#{passwordHash},role='ADMIN',status='ACTIVE' WHERE id=1 AND status='PENDING' AND password_hash IS NULL</update>
+ <insert id="session" useGeneratedKeys="true" keyProperty="id">INSERT INTO auth_session(user_id,token_hash,csrf_hash,expires_at) VALUES(#{userId},#{tokenHash},#{csrfHash},#{expiresAt})</insert>
+ <select id="findSession" resultType="com.alphascope.identity.entity.AuthSession">SELECT s.id,s.user_id,s.csrf_hash,s.expires_at,u.username,u.role,u.status FROM auth_session s JOIN app_user u ON u.id=s.user_id WHERE s.token_hash=#{tokenHash} AND s.expires_at&gt;#{now} AND u.status='ACTIVE'</select>
+ <delete id="revoke">DELETE FROM auth_session WHERE token_hash=#{tokenHash}</delete>
+ <delete id="expire">DELETE FROM auth_session WHERE expires_at&lt;=#{now}</delete>
+ <delete id="trim">DELETE FROM auth_session WHERE user_id=#{userId} AND id NOT IN (SELECT id FROM (SELECT id FROM auth_session WHERE user_id=#{userId} ORDER BY id DESC LIMIT #{maximum}) retained)</delete>
+ <select id="activeUsers" resultType="com.alphascope.identity.entity.AppUser">SELECT id,username,role,status FROM app_user WHERE status='ACTIVE' ORDER BY id</select>
+ <insert id="event">INSERT INTO auth_event(account_hash,success,reason,actor_id) VALUES(#{key},#{success},#{reason},#{actorId})</insert>
+ <select id="failures" resultType="int">SELECT COUNT(*) FROM auth_event WHERE account_hash=#{key} AND success=0 AND created_at&gt;=#{since}</select>
+ <select id="users" resultType="com.alphascope.identity.vo.UserAdminView"><bind name="offset" value="(page - 1) * size"/>SELECT id,username,role,status,created_at FROM app_user ORDER BY id LIMIT #{size} OFFSET #{offset}</select>
+ <select id="userCount" resultType="long">SELECT COUNT(*) FROM app_user</select>
+ <update id="updateUser">UPDATE app_user SET status=#{status}<if test="passwordHash != null">,password_hash=#{passwordHash}</if> WHERE id=#{id}</update>
+ <delete id="revokeUser">DELETE FROM auth_session WHERE user_id=#{id}</delete>
+ <delete id="purgeEvents">DELETE FROM auth_event WHERE created_at&lt;#{before} LIMIT 5000</delete>
+ <select id="lockRegistration" resultType="java.lang.Long">SELECT id FROM app_user WHERE id=1 FOR UPDATE</select>
+ <select id="freshInstall" resultType="boolean">SELECT EXISTS(SELECT 1 FROM flyway_schema_history WHERE version='1' AND type='SQL' AND success=1)</select>
+ <delete id="clearSeedWatches">DELETE FROM watchlist WHERE instrument_id IN (SELECT id FROM instrument WHERE symbol IN ('300476.SZ','002837.SZ'))</delete>
+</mapper>

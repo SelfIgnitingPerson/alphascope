@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.portfolio.mapper.PortfolioMapper">
+  <select id="watchlist" resultType="com.alphascope.portfolio.dto.WatchlistDO">
+    <![CDATA[
+    SELECT i.symbol, i.name, w.priority, w.enabled
+    FROM watchlist w
+    JOIN instrument i
+      ON i.id=w.instrument_id
+    ORDER BY w.priority DESC, i.symbol
+    ]]>
+  </select>
+
+  <insert id="watch">
+    <![CDATA[
+    INSERT INTO watchlist(instrument_id, priority, enabled)
+    VALUES(#{id}, #{priority}, 1)
+    ON DUPLICATE KEY UPDATE
+      priority= VALUES(priority),
+      enabled=1
+    ]]>
+  </insert>
+
+  <delete id="unwatch">
+    <![CDATA[
+    DELETE w
+    FROM watchlist w
+    JOIN instrument i
+      ON i.id=w.instrument_id
+    WHERE i.symbol=#{symbol}
+    ]]>
+  </delete>
+
+  <select id="positions" resultType="com.alphascope.portfolio.dto.PositionDO">
+    <![CDATA[
+    SELECT i.symbol, i.name, p.quantity, p.cost_price, p.as_of_date
+    FROM portfolio_position p
+    JOIN instrument i
+      ON i.id=p.instrument_id
+    ORDER BY i.id
+    ]]>
+  </select>
+
+  <insert id="position" parameterType="com.alphascope.portfolio.dto.PositionWriteCommand">
+    <![CDATA[
+    INSERT INTO portfolio_position(instrument_id, quantity, cost_price, as_of_date)
+    VALUES(#{instrumentId}, #{quantity}, #{costPrice}, #{asOfDate})
+    ON DUPLICATE KEY UPDATE
+      quantity= VALUES(quantity),
+      cost_price= VALUES(cost_price),
+      as_of_date= VALUES(as_of_date)
+    ]]>
+  </insert>
+
+  <select id="account" resultType="com.alphascope.portfolio.entity.PortfolioAccount">
+    <![CDATA[
+    SELECT total_assets,as_of_date FROM portfolio_account WHERE id=1
+    ]]>
+  </select>
+
+  <insert id="accountSave">
+    <![CDATA[
+    INSERT INTO portfolio_account(id, total_assets, as_of_date)
+    VALUES(1, #{assets}, #{date})
+    ON DUPLICATE KEY UPDATE
+      total_assets= VALUES(total_assets),
+      as_of_date= VALUES(as_of_date)
+    ]]>
+  </insert>
+</mapper>

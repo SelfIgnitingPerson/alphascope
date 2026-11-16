@@ -1,0 +1,264 @@
+/* 工作台侧栏、页头与内容区布局 */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-right: 1px solid #e6ebf1;
+  padding: 30px 16px 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 9px;
+  margin-bottom: 37px;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 39px;
+  background: #193f53;
+  border-radius: 10px;
+  color: #fff;
+  font:
+    31px Georgia,
+    serif;
+}
+
+.brand strong {
+  display: block;
+  font-size: 19px;
+  letter-spacing: -0.5px;
+}
+
+.brand small {
+  display: block;
+  font-size: 11px;
+  color: #8794a5;
+  letter-spacing: 1.2px;
+  margin-top: 4px;
+}
+
+.navigation {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.navigation__group {
+  margin-bottom: 24px;
+}
+
+.navigation__group h2 {
+  font-size: 11px;
+  font-weight: 500;
+  color: #7e8fa4;
+  letter-spacing: 1.5px;
+  padding: 0 16px;
+  margin: 0 0 10px;
+}
+
+.navigation__link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 15px;
+  font-size: 13px;
+  border-radius: 7px;
+  margin: 3px 0;
+  color: #68768a;
+}
+
+.navigation__link:hover {
+  color: #235970;
+  background: #f6f9fa;
+}
+
+.navigation__link.is-active {
+  color: #235970;
+  background: #eaf2f4;
+  font-weight: 600;
+}
+
+.navigation__dot {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+}
+
+.is-active .navigation__dot {
+  background: #235970;
+}
+
+.sidebar__note {
+  color: #708296;
+  font-size: 12px;
+  border-top: 1px solid #edf1f5;
+  padding: 18px 12px 0;
+  line-height: 1.8;
+}
+
+.sidebar__note p {
+  color: #a0a9b7;
+  font-size: 11px;
+  margin: 7px 0 0;
+}
+
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3c9e85;
+  margin-right: 6px;
+}
+
+.live-dot--warning {
+  background: #bd934b;
+}
+
+.workspace {
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar {
+  height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 38px;
+  border-bottom: 1px solid #e7ecf2;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.breadcrumb {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #7e8ea2;
+}
+
+.breadcrumb strong {
+  font-weight: 500;
+  color: #5c6c80;
+}
+
+.breadcrumb span {
+  color: #c6ced9;
+}
+
+.topbar__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  align-items: center;
+  color: #7a889a;
+  font-size: 12px;
+}
+
+.topbar__separator {
+  height: 12px;
+  width: 1px;
+  margin: 0 4px;
+  background: #e1e7ee;
+}
+
+.page-container {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 32px 38px 0;
+}
+
+.page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 27px;
+}
+
+.page-heading h1 {
+  font-size: 25px;
+  letter-spacing: -0.5px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.page-description {
+  font-size: 13px;
+  color: #738398;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.date-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 440px;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.date-toolbar label {
+  font-size: 12px;
+  color: #9aa5b3;
+}
+
+.date-toolbar .el-date-editor.el-input {
+  width: 145px;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  color: #a9b2c1;
+  border-top: 1px solid #e5eaf1;
+  margin-top: 28px;
+  padding: 20px 0 24px;
+  font-size: 10px;
+}
+
+.sidebar__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.mobile-menu-toggle {
+  display: none;
+}
+
+.topbar__account {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar__mode {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.breadcrumb {
+  flex-shrink: 0;
+}

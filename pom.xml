@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- 统一继承 Spring Boot 的依赖与插件管理；业务模块不再独立声明另一套父配置。 -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.15</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.alphascope</groupId>
+  <artifactId>alphascope</artifactId>
+  <version>0.1.0</version>
+  <packaging>pom</packaging>
+  <name>AlphaScope</name>
+  <description>AlphaScope parent project and backend build configuration</description>
+
+  <modules>
+    <module>backend</module>
+  </modules>
+
+  <!-- 集中维护 Java 版本和 Boot 未管理的依赖/插件版本；前端版本由 package-lock.json 管理。 -->
+  <properties>
+    <java.version>21</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <spring-ai.version>1.0.9</spring-ai.version>
+    <mybatis-spring-boot.version>3.0.4</mybatis-spring-boot.version>
+    <springdoc.version>2.8.9</springdoc.version>
+    <rhino.version>1.7.15</rhino.version>
+    <spotless.version>2.43.0</spotless.version>
+    <google-java-format.version>1.24.0</google-java-format.version>
+    <exec-maven-plugin.version>3.5.0</exec-maven-plugin.version>
+    <mybatis-plus.version>3.5.18.1</mybatis-plus.version>
+  </properties>
+
+  <!-- 自定义依赖版本集中在父 POM；MySQL、Flyway、JUnit、Testcontainers 跟随 Boot。 -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-jsqlparser</artifactId>
+        <version>${mybatis-plus.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-starter-model-openai</artifactId>
+        <version>${spring-ai.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mybatis.spring.boot</groupId>
+        <artifactId>mybatis-spring-boot-starter</artifactId>
+        <version>${mybatis-spring-boot.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mozilla</groupId>
+        <artifactId>rhino</artifactId>
+        <version>${rhino.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- pluginManagement 定义规则，子模块在 plugins 中声明实际使用的插件。 -->
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>${spotless.version}</version>
+          <configuration>
+            <java>
+              <googleJavaFormat>
+                <version>${google-java-format.version}</version>
+              </googleJavaFormat>
+            </java>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>exec-maven-plugin</artifactId>
+          <version>${exec-maven-plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

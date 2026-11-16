@@ -1,0 +1,336 @@
+[
+  {
+    "themeCode": "CPO",
+    "title": "光互联核心龙头",
+    "marketAlias": "易中天：新易盛、中际旭创、天孚通信；组合简称不表示名次。",
+    "reviewedAt": "2026-11-16",
+    "selectionBasis": "优先展示高速光模块规模头部，再展示配套光器件核心企业。中际旭创和新易盛的规模位置参考LightCounting行业观察；天孚通信单列上游器件角色。",
+    "limitation": "这是基于公开业务和行业资料整理的核心企业观察组，不是全行业自动排名、涨幅榜或买入排序。只有单独标出年份和范围的名次才是来源中的排名；跨细分企业不强排第一、第二、第三。当前目录不倒填历史，不参与下方旧披露样本评分。",
+    "members": [
+      {
+        "displayOrder": 1,
+        "symbol": "300308.SZ",
+        "name": "中际旭创",
+        "tier": "核心龙头",
+        "segment": "高速数通光模块",
+        "standing": "光模块规模头部",
+        "rationale": "业务覆盖云数据中心高速光模块；LightCounting的2026Q1观察以其为规模比较对象。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "LightCounting：2026年一季度行业财务观察",
+            "url": "https://www.lightcounting.com/newsletter/en/may-2026-record-sales-profits-and-backlog-across-the-supply-chain-can-this-get-any-better-446"
+          },
+          {
+            "title": "中际旭创2025年度报告",
+            "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2026-03-31/7bb16111-3899-41e7-8a07-abf2c8798dd7.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 2,
+        "symbol": "300502.SZ",
+        "name": "新易盛",
+        "tier": "核心龙头",
+        "segment": "高速数通光模块",
+        "standing": "光模块规模头部",
+        "rationale": "LightCounting在2026Q1财务观察中将其列为中际旭创直接竞争者中的第二规模企业；不是按当天股价排序。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "LightCounting：2026年一季度行业财务观察",
+            "url": "https://www.lightcounting.com/newsletter/en/may-2026-record-sales-profits-and-backlog-across-the-supply-chain-can-this-get-any-better-446"
+          },
+          {
+            "title": "新易盛2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-24/1225172598.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 3,
+        "symbol": "300394.SZ",
+        "name": "天孚通信",
+        "tier": "核心龙头",
+        "segment": "光器件、光引擎与精密封装",
+        "standing": "上游光器件核心企业",
+        "rationale": "2025年报披露高速光器件及光引擎能力；与前两家公司处于不同产业环节，不能标为第三大光模块厂商。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "天孚通信2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-08/1225082705.PDF"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "themeCode": "PCB",
+    "title": "PCB与覆铜板核心企业",
+    "marketAlias": "高端PCB与CCL分开看，不把PCB制造和覆铜板直接混排名。",
+    "reviewedAt": "2026-11-16",
+    "selectionBasis": "以高端PCB、通信/服务器PCB、封装基板和上游覆铜板的业务地位安排观察顺序；同一细分优先头部，覆盖不同环节。",
+    "limitation": "这是基于公开业务和行业资料整理的核心企业观察组，不是全行业自动排名、涨幅榜或买入排序。只有单独标出年份和范围的名次才是来源中的排名；跨细分企业不强排第一、第二、第三。当前目录不倒填历史，不参与下方旧披露样本评分。",
+    "members": [
+      {
+        "displayOrder": 1,
+        "symbol": "300476.SZ",
+        "name": "胜宏科技",
+        "tier": "核心龙头",
+        "segment": "高多层PCB、高阶HDI",
+        "standing": "AI高端PCB核心企业",
+        "rationale": "2025年报披露高多层与高阶HDI技术能力，用于AI算力及高端服务器研究；不等同于全球全部PCB第一。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "胜宏科技2025年度报告",
+            "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2026-03-13/070dfea8-4c7b-4bd0-91a6-a7b045f12f4d.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 2,
+        "symbol": "002463.SZ",
+        "name": "沪电股份",
+        "tier": "核心龙头",
+        "segment": "高速网络、服务器PCB",
+        "standing": "通信与服务器PCB核心企业",
+        "rationale": "年报披露高速交换机、AI服务器与HPC等应用收入，按其相关业务地位列入核心观察组。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "沪电股份2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-03-25/1225027832.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 3,
+        "symbol": "002916.SZ",
+        "name": "深南电路",
+        "tier": "核心龙头",
+        "segment": "PCB、封装基板与电子装联",
+        "standing": "PCB与封装基板综合头部",
+        "rationale": "年报披露PCB、封装基板和电子装联业务，并引述Prismark对营收规模的排名。该口径不同于AI PCB单项排名。",
+        "formalRanking": "2025年全球PCB厂商营收规模预计第4；来源为年报转引Prismark，非A股AI PCB名次。",
+        "sources": [
+          {
+            "title": "深南电路2025年度报告摘要",
+            "url": "https://disc.static.szse.cn/disc/disk03/finalpage/2026-03-13/9dd30c78-1d7e-46d6-a99d-67a8b95ceafa.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 4,
+        "symbol": "600183.SH",
+        "name": "生益科技",
+        "tier": "细分龙头",
+        "segment": "覆铜板CCL与粘结片",
+        "standing": "PCB上游材料核心企业",
+        "rationale": "覆铜板属于PCB上游材料，单列研究，不把其公司总营收与PCB加工业务混算排名。",
+        "formalRanking": "2024年刚性覆铜板销售额全球第2；2025年报转引Prismark，非PCB制造排名。",
+        "sources": [
+          {
+            "title": "生益科技2025年度报告（发行人原始披露）",
+            "url": "https://vip.stock.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12198074"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "themeCode": "COOLING",
+    "title": "液冷与热管理核心企业",
+    "marketAlias": "机房、服务器、CDU与电力电子冷却的客户和收入结构不同。",
+    "reviewedAt": "2026-11-16",
+    "selectionBasis": "先看数据中心全链条液冷平台，再看环境控制与电力电子冷却等细分企业。公开资料支持业务位置，不足以证明三家恰为全行业前三。",
+    "limitation": "这是基于公开业务和行业资料整理的核心企业观察组，不是全行业自动排名、涨幅榜或买入排序。只有单独标出年份和范围的名次才是来源中的排名；跨细分企业不强排第一、第二、第三。当前目录不倒填历史，不参与下方旧披露样本评分。",
+    "members": [
+      {
+        "displayOrder": 1,
+        "symbol": "002837.SZ",
+        "name": "英维克",
+        "tier": "核心龙头",
+        "segment": "数据中心全链条液冷",
+        "standing": "液冷平台型核心企业",
+        "rationale": "2025年报披露全链条算力液冷与机房温控布局，作为算力液冷核心观察企业。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "英维克2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-04-21/1225131813.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 2,
+        "symbol": "301018.SZ",
+        "name": "申菱环境",
+        "tier": "细分龙头",
+        "segment": "数据中心环境控制、CDU",
+        "standing": "数据中心液冷细分核心企业",
+        "rationale": "发行人披露涉及数据中心液冷和环境系统；不能把CDU单项地位扩展为全部液冷第一。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "同飞制冷募集说明书：同业业务及规模比较",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-07-06/1225410611.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 3,
+        "symbol": "300499.SZ",
+        "name": "高澜股份",
+        "tier": "细分代表",
+        "segment": "电力电子液冷、服务器冷板与CDU",
+        "standing": "电力电子冷却及算力液冷代表",
+        "rationale": "公开募集说明书列示直流输电冷却、服务器冷板和CDU等产品，按细分业务纳入观察；不宣称全行业第三。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "同飞制冷募集说明书：同业业务及规模比较",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-07-06/1225410611.PDF"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "themeCode": "SEMI_EQUIPMENT",
+    "title": "半导体设备核心企业",
+    "marketAlias": "平台设备、刻蚀与清洗分开识别。",
+    "reviewedAt": "2026-11-16",
+    "selectionBasis": "优先平台型设备企业，再按刻蚀、清洗等关键环节列出核心公司；展示次序不是所有设备子行业的统一市占率名次。",
+    "limitation": "这是基于公开业务和行业资料整理的核心企业观察组，不是全行业自动排名、涨幅榜或买入排序。只有单独标出年份和范围的名次才是来源中的排名；跨细分企业不强排第一、第二、第三。当前目录不倒填历史，不参与下方旧披露样本评分。",
+    "members": [
+      {
+        "displayOrder": 1,
+        "symbol": "002371.SZ",
+        "name": "北方华创",
+        "tier": "核心龙头",
+        "segment": "平台型半导体工艺设备",
+        "standing": "平台型设备核心企业",
+        "rationale": "公司公开年度经营披露显示较大收入规模与多工艺设备布局，作为平台型设备核心观察企业。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "北方华创2025年度经营与年度报告披露",
+            "url": "https://epaper.cs.com.cn/zgzqb/html/2026-04/18/nw.D110000zgzqb_20260418_1-B151.htm"
+          },
+          {
+            "title": "北方华创2026半年度报告摘要",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-08-26/1225501902.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 2,
+        "symbol": "688012.SH",
+        "name": "中微公司",
+        "tier": "细分龙头",
+        "segment": "刻蚀、薄膜沉积设备",
+        "standing": "刻蚀设备核心企业",
+        "rationale": "2025年度报告披露刻蚀设备、薄膜设备与全球客户产线应用；按刻蚀工艺环节列为核心观察，不按旧表格中的先后次序排序。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "中微公司2025年度报告（发行人原始披露）",
+            "url": "https://money.finance.sina.com.cn/corp/view/vCB_AllBulletinDetail.php?id=12046107&stockid=688012"
+          }
+        ]
+      },
+      {
+        "displayOrder": 3,
+        "symbol": "688082.SH",
+        "name": "盛美上海",
+        "tier": "细分龙头",
+        "segment": "清洗与相关半导体工艺设备",
+        "standing": "清洗设备核心企业",
+        "rationale": "2025年报披露设备业务与营收规模，按清洗环节定位列入核心组；不是整体设备行业第三名。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "盛美上海2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-02-27/1224986438.PDF"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "themeCode": "MEMORY",
+    "title": "存储产业链核心企业",
+    "marketAlias": "存储芯片设计、内存接口与存储模组不是同一种业务。",
+    "reviewedAt": "2026-11-16",
+    "selectionBasis": "先区分芯片设计和内存互连，再看存储模组品牌与封测；各细分头部并列研究，不把总营收直接混排为全行业前三。",
+    "limitation": "这是基于公开业务和行业资料整理的核心企业观察组，不是全行业自动排名、涨幅榜或买入排序。只有单独标出年份和范围的名次才是来源中的排名；跨细分企业不强排第一、第二、第三。当前目录不倒填历史，不参与下方旧披露样本评分。",
+    "members": [
+      {
+        "displayOrder": 1,
+        "symbol": "603986.SH",
+        "name": "兆易创新",
+        "tier": "核心龙头",
+        "segment": "存储芯片设计与MCU",
+        "standing": "存储芯片设计核心企业",
+        "rationale": "2025年报披露存储芯片等产品业务；其定位与模组企业不同，按芯片设计环节优先观察。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "兆易创新2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225061352.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 2,
+        "symbol": "688008.SH",
+        "name": "澜起科技",
+        "tier": "细分龙头",
+        "segment": "内存接口与互连芯片",
+        "standing": "内存互连核心企业",
+        "rationale": "年报及公司投资者资料披露内存互连芯片业务；不是DRAM/NAND存储颗粒原厂。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "澜起科技2025年度报告",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225057736.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 3,
+        "symbol": "301308.SZ",
+        "name": "江波龙",
+        "tier": "细分龙头",
+        "segment": "存储产品、模组与品牌",
+        "standing": "存储模组核心企业",
+        "rationale": "2025年报披露存储产品、品牌与封测业务，按存储模组环节列入核心观察。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "江波龙2025年度报告",
+            "url": "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-04-28/a07d4431-c1d0-4791-a060-05568b17c934.PDF"
+          }
+        ]
+      },
+      {
+        "displayOrder": 4,
+        "symbol": "688525.SH",
+        "name": "佰维存储",
+        "tier": "细分代表",
+        "segment": "存储模组与封测",
+        "standing": "存储模组扩展观察企业",
+        "rationale": "公开披露的存储模组同业名单列示该公司；作为扩展观察，不将可比公司身份直接称为行业第二或第三。",
+        "formalRanking": null,
+        "sources": [
+          {
+            "title": "恒尚节能问询回复：存储模组可比公司",
+            "url": "https://static.cninfo.com.cn/finalpage/2026-07-14/1225422655.PDF"
+          }
+        ]
+      }
+    ]
+  }
+]

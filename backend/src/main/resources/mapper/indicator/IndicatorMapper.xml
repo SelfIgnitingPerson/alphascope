@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.indicator.mapper.IndicatorMapper">
+  <!-- Java 布尔属性不使用 is 前缀；数据库列及冻结 JSON 保留 is_synthetic。 -->
+  <resultMap id="indicatorSnapshotResult" type="com.alphascope.indicator.entity.IndicatorSnapshot" autoMapping="true">
+    <result column="is_synthetic" property="synthetic"/>
+  </resultMap>
+
+  <select id="list" resultMap="indicatorSnapshotResult" parameterType="com.alphascope.common.dto.InstrumentHistoryQuery">
+    <![CDATA[
+    SELECT
+      s.id,
+      s.instrument_id,
+      s.trade_date,
+      s.algorithm_version,
+      s.ma5,
+      s.ma10,
+      s.ma20,
+      s.ma60,
+      s.atr14,
+      s.rs20,
+      s.vol_ratio,
+      s.data_status,
+      s.created_at,
+      s.updated_at,
+      s.is_synthetic,
+      s.input_hash,
+      s.source_batch
+    FROM indicator_snapshot s
+    JOIN instrument i
+      ON i.id=s.instrument_id
+    WHERE i.symbol=#{symbol}
+      AND s.algorithm_version=(SELECT MAX(n.algorithm_version) FROM indicator_snapshot n
+        WHERE n.instrument_id=s.instrument_id AND n.trade_date=s.trade_date AND n.is_synthetic=s.is_synthetic
+          AND n.algorithm_version IN ('ADJ_V1','ADJ_V2'))
+      AND s.is_synthetic=#{synthetic}
+      AND trade_date BETWEEN #{startDate} AND #{endDate}
+    ORDER BY trade_date
+    ]]>
+  </select>
+
+  <insert id="save">
+    <![CDATA[
+    INSERT INTO indicator_snapshot(instrument_id, trade_date, algorithm_version, ma5, ma10, ma20,
+      ma60, atr14, rs20, vol_ratio, data_status, is_synthetic, input_hash, source_batch)
+    VALUES(#{instrumentId}, #{tradeDate}, #{algorithmVersion}, #{ma5}, #{ma10}, #{ma20}, #{ma60}, #{atr14}, #{rs20},
+      #{volRatio}, #{dataStatus}, #{synthetic}, #{inputHash}, #{sourceBatch})
+    ON DUPLICATE KEY UPDATE
+      ma5= VALUES(ma5),
+      ma10= VALUES(ma10),
+      ma20= VALUES(ma20),
+      ma60= VALUES(ma60),
+      atr14= VALUES(atr14),
+      rs20= VALUES(rs20),
+      vol_ratio= VALUES(vol_ratio),
+      data_status= VALUES(data_status),
+      is_synthetic= VALUES(is_synthetic),
+      input_hash= VALUES(input_hash),
+      source_batch= VALUES(source_batch)
+    ]]>
+  </insert>
+</mapper>

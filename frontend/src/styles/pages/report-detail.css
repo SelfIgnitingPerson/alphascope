@@ -1,0 +1,324 @@
+/* 报告事实、证据对比与版本工具 */
+.comparison-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.comparison-columns pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .comparison-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 报告以可复核事实与规则依据为主，版本工具和原始JSON保留为辅助信息。 */
+.report-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 24px;
+}
+.report-focus {
+  background: var(--color-surface-alt, #f4f7fb);
+  border-radius: 14px;
+  padding: 22px;
+}
+.report-focus h3 {
+  margin: 10px 0 18px;
+  line-height: 1.6;
+}
+.report-focus__counts {
+  display: flex;
+  gap: 16px 28px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.report-focus__counts strong {
+  font-variant-numeric: tabular-nums;
+  margin-left: 8px;
+}
+.report-stock-fact {
+  min-width: 0;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 14px;
+  padding: 24px;
+}
+.report-stock-fact__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.report-stock-fact h3 {
+  margin: 0;
+  font-size: 20px;
+}
+.report-stock-fact h3 small {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 400;
+}
+.report-stock-fact__header p {
+  color: #64748b;
+  font-size: 13px;
+}
+.report-risk-count {
+  white-space: nowrap;
+  font-size: 13px;
+  color: #9a3412;
+}
+.report-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 16px;
+  margin: 20px 0;
+}
+.report-metric-grid dt {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.report-metric-grid dd {
+  margin: 6px 0 0;
+  font-size: 21px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.report-metric-grid dd small {
+  font-size: 12px;
+  font-weight: 400;
+}
+.report-levels {
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.report-rule-evidence h4,
+.report-followup h4 {
+  margin: 22px 0 12px;
+}
+.report-rule-row {
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.report-rule-row > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.report-rule-row small {
+  color: #64748b;
+}
+.report-rule-row p,
+.report-followup p {
+  line-height: 1.9;
+  font-size: 13px;
+  margin: 8px 0;
+}
+.report-followup > div {
+  margin: 14px 0;
+}
+.report-followup strong {
+  font-size: 13px;
+}
+.report-other-rules,
+.report-data-gaps,
+.report-original-text {
+  margin: 18px 0;
+}
+.report-data-gaps li {
+  line-height: 1.9;
+}
+.report-facts summary,
+.report-original-text > summary {
+  cursor: pointer;
+  color: #475569;
+  font-size: 14px;
+  padding: 6px 0;
+}
+@media (max-width: 700px) {
+  .report-stock-fact {
+    padding: 16px;
+  }
+  .report-stock-fact__header {
+    flex-direction: column;
+    gap: 0;
+  }
+  .report-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .report-metric-grid dd {
+    font-size: 19px;
+  }
+}
+.report-version-tools {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 18px;
+}
+.report-version-tools > summary {
+  cursor: pointer;
+  color: #64748b;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* 报告阅读工作台：先看重点，再按类别读取冻结内容。 */
+.report-detail-page .report-document {
+  max-width: none;
+  margin: 0;
+  padding: 24px 28px;
+}
+.report-detail-page .report-document__header {
+  padding-bottom: 16px;
+}
+.report-detail-page .report-document__header h2 {
+  margin: 8px 0 10px;
+  font-size: 23px;
+}
+.report-detail-page .report-document__header p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.report-section-tabs {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  margin-top: 12px;
+}
+.report-section-tabs button {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #738398;
+  padding: 14px 2px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.report-section-tabs button[aria-selected='true'] {
+  color: #235970;
+  border-bottom-color: #235970;
+  font-weight: 600;
+}
+.report-reading-panel {
+  padding-top: 20px;
+  min-width: 0;
+}
+.report-reading-panel .report-facts {
+  margin-top: 0;
+  gap: 18px;
+}
+.report-reading-panel .report-focus {
+  padding: 16px 20px;
+}
+.report-reading-panel .report-focus h3 {
+  margin: 8px 0 12px;
+  font-size: 17px;
+}
+.report-reading-panel .report-focus__counts {
+  font-size: 13px;
+}
+.report-stock-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.report-stock-selector button {
+  border: 1px solid #e1e7ee;
+  border-radius: 7px;
+  background: #fff;
+  padding: 10px 14px;
+  cursor: pointer;
+  color: #52667c;
+}
+.report-stock-selector button[aria-pressed='true'] {
+  background: #e8f2f5;
+  border-color: #7aa0b0;
+  color: #235970;
+}
+.report-stock-selector small {
+  margin-left: 6px;
+  font-size: 11px;
+}
+.report-stock-overview h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+.report-stock-overview__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.report-stock-overview__grid button {
+  min-width: 0;
+  border: 1px solid #e1e7ee;
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  padding: 16px;
+  cursor: pointer;
+  color: #25344a;
+}
+.report-stock-overview__grid strong,
+.report-stock-overview__grid span {
+  display: block;
+}
+.report-stock-overview__grid small {
+  font-size: 11px;
+  font-weight: 400;
+  color: #738398;
+}
+.report-stock-overview__grid span {
+  font-size: 12px;
+  margin-top: 10px;
+}
+.report-stock-overview__grid p {
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 10px 0;
+}
+.report-secondary-evidence {
+  margin-top: 20px;
+}
+@media (max-width: 1100px) {
+  .report-stock-overview__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .report-detail-page .report-document {
+    padding: 18px 16px;
+  }
+  .report-detail-page .report-document__header h2 {
+    font-size: 20px;
+  }
+  .report-section-tabs {
+    gap: 16px;
+  }
+  .report-stock-overview__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .report-stock-selector button {
+    flex: 1 1 auto;
+  }
+}
+
+.report-stock-overview__grid button.report-stock-overview__alert {
+  border-left: 3px solid #b54740;
+}
+.report-stock-overview__alert > span:first-of-type {
+  color: #a7423b;
+  font-weight: 600;
+}

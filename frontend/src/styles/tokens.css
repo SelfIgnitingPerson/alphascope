@@ -1,0 +1,21 @@
+/* 颜色、字体与Element Plus主题变量 */
+
+:root {
+  color-scheme: light;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang SC',
+    'Microsoft YaHei',
+    sans-serif;
+  color: #25344a;
+  background: #f5f7fa;
+  --el-color-primary: #235970;
+  --el-color-success: #2b8977;
+  --el-border-color: #e1e7ee;
+  --el-border-color-lighter: #edf1f5;
+  --el-text-color-primary: #25344a;
+  --el-font-size-base: 13px;
+  --el-border-radius-base: 7px;
+}

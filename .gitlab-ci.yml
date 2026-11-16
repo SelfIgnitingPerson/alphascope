@@ -1,0 +1,75 @@
+# 使用已装Java21、Node22、Docker、Chrome、OpenSSL的受信任Linux Runner。
+# Runner标签为alphascope；浏览器与数据库均使用一次性测试环境。
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+stages: [test, audit, package]
+default:
+  tags: [alphascope]
+  interruptible: true
+  before_script:
+    - export MAVEN_OPTS="-Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+    - export NPM_CONFIG_CACHE="$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files: [pom.xml, frontend/package-lock.json]
+    paths: [.m2/repository/, .npm/]
+variables:
+  RUN_DB_TESTS: 'true'
+  RUN_CONTAINER_TESTS: 'true'
+  RUN_BROWSER_TESTS: 'true'
+verify:
+  stage: test
+  timeout: 20m
+  script:
+    - java -version
+    - node --version
+    - node scripts/quality/check-project.mjs
+    - docker info --format '{{.ServerVersion}}'
+    - npm --prefix frontend ci
+    - npm --prefix frontend run format:check
+    - npm --prefix frontend test
+    - npm --prefix frontend run build
+    - ./mvnw -B -pl backend -Pproduction-web clean spotless:check verify
+    - MYSQL_PASSWORD=ci-only MYSQL_ROOT_PASSWORD=ci-only-root docker compose config --quiet
+    - ALPHASCOPE_LOCAL_UID=10001 ALPHASCOPE_LOCAL_GID=10001 MYSQL_PASSWORD=ci-only docker compose -f deploy/compose.local.yml config --quiet
+    - PUBLIC_HOST=research.example.test ACME_EMAIL=ci@example.test ADMIN_USERNAME=ci-admin ADMIN_PASSWORD=ci-only-initial-password MYSQL_PASSWORD=ci-only MYSQL_ROOT_PASSWORD=ci-only-root docker compose -f deploy/compose.yml config --quiet
+    - node scripts/quality/release-manifest.mjs
+  artifacts:
+    when: always
+    expire_in: 14 days
+    reports:
+      junit: backend/target/surefire-reports/TEST-*.xml
+    paths:
+      - backend/target/surefire-reports/
+      - backend/target/browser-test/
+      - backend/target/public-browser-test/
+      - backend/target/alphascope-backend-0.1.0.jar
+      - frontend/dist/
+      - artifacts/release-manifest.json
+security:
+  stage: audit
+  timeout: 20m
+  needs:
+    - job: verify
+      artifacts: true
+  script:
+    - npm --prefix frontend ci
+    - bash scripts/quality/security-audit.sh
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - .runtime/security/
+      - target/bom.json
+      - artifacts/dependency-licenses.json
+source-package:
+  stage: package
+  needs: [verify, security]
+  script:
+    - bash scripts/tools.sh package
+  artifacts:
+    expire_in: 30 days
+    paths: [artifacts/alphascope-source.zip]

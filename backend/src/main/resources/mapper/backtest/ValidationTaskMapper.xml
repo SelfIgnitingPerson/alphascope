@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.backtest.mapper.ValidationTaskMapper">
+  <sql id="metadata">id, status, scope, data_scope, owner_token, completed_units, total_units, message,
+    evidence_sha256, created_at, started_at, finished_at, heartbeat_at, deadline_at, updated_at</sql>
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO research_validation_task(status, scope, data_scope, active_key, request_json)
+    VALUES('PENDING', #{scope}, #{dataScope}, #{activeKey}, #{requestJson})
+  </insert>
+  <select id="get" resultType="com.alphascope.backtest.entity.ResearchValidationTask">
+    SELECT <include refid="metadata"/>, request_json, summary_json FROM research_validation_task WHERE id=#{id}
+  </select>
+  <select id="page" resultType="com.alphascope.backtest.entity.ResearchValidationTask">
+    <bind name="offset" value="(page - 1) * size"/>
+    SELECT <include refid="metadata"/>, request_json FROM research_validation_task ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
+  </select>
+  <select id="count" resultType="long">SELECT COUNT(*) FROM research_validation_task</select>
+  <select id="activeCount" resultType="long">
+    SELECT COUNT(*) FROM research_validation_task WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')
+  </select>
+  <select id="active" resultType="com.alphascope.backtest.entity.ResearchValidationTask">
+    SELECT <include refid="metadata"/>, request_json, summary_json FROM research_validation_task WHERE active_key=#{key}
+  </select>
+  <select id="pending" resultType="java.lang.Long">SELECT MIN(id) FROM research_validation_task WHERE status='PENDING'</select>
+  <update id="claim">
+    UPDATE research_validation_task SET status='RUNNING', owner_token=#{owner}, started_at=#{now},
+      heartbeat_at=#{now}, deadline_at=#{deadline}, message='开始读取冻结请求'
+    WHERE id=#{id} AND status='PENDING'
+  </update>
+  <update id="pulse">
+    UPDATE research_validation_task SET heartbeat_at=#{now}, completed_units=#{completed}, total_units=#{total},
+      message=CASE WHEN status='RUNNING' THEN #{message} ELSE message END,
+      status=CASE WHEN status='RUNNING' AND deadline_at &lt;= #{now} THEN 'TIMEOUT_REQUESTED' ELSE status END
+    WHERE id=#{id} AND owner_token=#{owner} AND status IN ('RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')
+  </update>
+  <update id="cancel">
+    UPDATE research_validation_task SET
+      finished_at=CASE WHEN status='PENDING' THEN #{now} ELSE finished_at END,
+      active_key=CASE WHEN status='PENDING' THEN NULL ELSE active_key END,
+      message='用户已请求取消验证',
+      status=CASE WHEN status='PENDING' THEN 'CANCELLED' ELSE 'CANCEL_REQUESTED' END
+    WHERE id=#{id} AND status IN ('PENDING','RUNNING')
+  </update>
+  <update id="finish">
+    UPDATE research_validation_task SET
+      completed_units=CASE WHEN status='RUNNING' AND #{status}='SUCCESS' AND deadline_at &gt; #{now} THEN 1 ELSE completed_units END,
+      total_units=CASE WHEN status='RUNNING' AND #{status}='SUCCESS' AND deadline_at &gt; #{now} THEN 1 ELSE total_units END,
+      evidence_json=CASE WHEN status='RUNNING' AND #{status}='SUCCESS' AND deadline_at &gt; #{now} THEN #{evidence} ELSE NULL END,
+      summary_json=CASE WHEN status='RUNNING' AND #{status}='SUCCESS' AND deadline_at &gt; #{now} THEN #{summary} ELSE NULL END,
+      evidence_sha256=CASE WHEN status='RUNNING' AND #{status}='SUCCESS' AND deadline_at &gt; #{now} THEN #{evidenceHash} ELSE NULL END,
+      message=CASE WHEN status='CANCEL_REQUESTED' THEN '验证已取消' WHEN status='TIMEOUT_REQUESTED' OR deadline_at &lt;= #{now}
+        THEN '验证超过执行时限' ELSE #{message} END,
+      status=CASE WHEN status='CANCEL_REQUESTED' THEN 'CANCELLED' WHEN status='TIMEOUT_REQUESTED' OR deadline_at &lt;= #{now}
+        THEN 'TIMED_OUT' ELSE #{status} END,
+      active_key=NULL, finished_at=#{now}, heartbeat_at=#{now}
+    WHERE id=#{id} AND owner_token=#{owner} AND status IN ('RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')
+  </update>
+  <update id="recover">
+    UPDATE research_validation_task SET
+      message='原执行进程心跳失联，未发布成功证据',
+      status=CASE WHEN status='CANCEL_REQUESTED' THEN 'CANCELLED' WHEN status='TIMEOUT_REQUESTED' THEN 'TIMED_OUT' ELSE 'INTERRUPTED' END,
+      active_key=NULL, finished_at=#{now}, owner_token=NULL
+    WHERE status IN ('RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') AND heartbeat_at &lt; #{staleBefore}
+  </update>
+  <select id="evidence" resultType="java.lang.String">
+    SELECT evidence_json FROM research_validation_task WHERE id=#{id} AND status='SUCCESS'
+  </select>
+</mapper>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.notification.mapper.NotificationMapper">
+  <insert id="save">
+    <![CDATA[
+    INSERT IGNORE INTO notification_log(report_id, channel, recipient_hash, status, sent_at, idempotency_key)
+    VALUES(#{id}, 'LOCAL', #{hash}, 'SENT', CURRENT_TIMESTAMP, #{key})
+    ]]>
+  </insert>
+</mapper>

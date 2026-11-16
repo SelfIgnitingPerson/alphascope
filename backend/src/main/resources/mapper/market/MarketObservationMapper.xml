@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.market.mapper.MarketObservationMapper">
+  <select id="factor" resultType="com.alphascope.market.entity.MarketFactorSnapshot">
+    <![CDATA[
+    SELECT id, symbol, source, verified_through, content_hash, raw_json, fetched_at, last_verified_at
+    FROM market_factor_snapshot
+    WHERE symbol=#{symbol}
+      AND source=#{source}
+      AND verified_through>=#{end}
+      AND (source='BAOSTOCK' OR STR_TO_DATE(JSON_UNQUOTE(JSON_EXTRACT(raw_json, '$.coverageFrom')), '%Y-%m-%d') <=#{start})
+    ORDER BY verified_through DESC, id DESC
+    LIMIT 1
+    ]]>
+  </select>
+
+  <insert id="factorSave" parameterType="com.alphascope.market.entity.MarketFactorSnapshot">
+    <![CDATA[
+    INSERT INTO market_factor_snapshot(symbol, source, verified_through, content_hash, raw_json,
+      fetched_at, last_verified_at)
+    VALUES(#{symbol}, COALESCE(#{source}, 'BAOSTOCK'), #{verifiedThrough}, #{contentHash}, #{rawJson}, #{fetchedAt}, #{fetchedAt})
+    ON DUPLICATE KEY UPDATE
+      verified_through=GREATEST(verified_through, VALUES(verified_through)),
+      last_verified_at= VALUES(last_verified_at)
+    ]]>
+  </insert>
+
+  <select id="latestOnOrBefore" resultType="com.alphascope.market.entity.MarketObservationSnapshot">
+    <![CDATA[
+    SELECT
+      id,
+      trade_date,
+      universe_scope,
+      model_version,
+      content_hash,
+      analysis_json,
+      evidence_json,
+      fetched_at
+    FROM market_observation_snapshot
+    WHERE id=(
+      SELECT id
+      FROM market_observation_snapshot
+      WHERE trade_date<=#{date}
+        AND universe_scope='SH_SZ_A'
+        AND model_version='SH_SZ_OBSERVATION_V1'
+      ORDER BY trade_date DESC, id DESC
+      LIMIT 1
+    )
+    ]]>
+  </select>
+
+  <insert id="save" parameterType="com.alphascope.market.entity.MarketObservationSnapshot">
+    <![CDATA[
+    INSERT IGNORE INTO market_observation_snapshot(trade_date, universe_scope, model_version, content_hash,
+      analysis_json, evidence_json, fetched_at)
+    VALUES(#{tradeDate}, 'SH_SZ_A', 'SH_SZ_OBSERVATION_V1', #{contentHash}, #{analysisJson}, #{evidenceJson}, #{fetchedAt})
+    ]]>
+  </insert>
+</mapper>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.signal.mapper.SignalMapper">
+  <!-- Java 布尔属性不使用 is 前缀；数据库列及冻结 JSON 保留 is_synthetic。 -->
+  <resultMap id="signalEventResult" type="com.alphascope.signal.entity.SignalEvent" autoMapping="true">
+    <result column="is_synthetic" property="synthetic"/>
+  </resultMap>
+
+  <sql id="signalHistoryRows">
+    <![CDATA[
+    SELECT
+      s.id,
+      s.instrument_id,
+      s.trade_date,
+      s.rule_code,
+      s.rule_version,
+      s.severity,
+      s.evidence_json,
+      s.status,
+      s.created_at,
+      s.updated_at,
+      s.is_synthetic
+    FROM signal_event s
+    JOIN instrument i
+      ON i.id=s.instrument_id
+    WHERE i.symbol=#{symbol}
+      AND s.is_synthetic=#{synthetic}
+      AND trade_date BETWEEN #{startDate} AND #{endDate}
+    ]]>
+  </sql>
+
+  <select id="list" resultMap="signalEventResult" parameterType="com.alphascope.common.dto.InstrumentHistoryQuery">
+    <include refid="signalHistoryRows"/>
+    ORDER BY trade_date DESC, rule_code
+    LIMIT 1000
+  </select>
+
+  <select id="evaluationRecords" resultMap="signalEventResult" parameterType="com.alphascope.common.dto.InstrumentHistoryQuery">
+    <include refid="signalHistoryRows"/>
+    ORDER BY trade_date, rule_code, s.id
+  </select>
+
+  <insert id="save">
+    <![CDATA[
+    INSERT INTO signal_event(instrument_id, trade_date, rule_code, rule_version, severity, evidence_json,
+      status, is_synthetic)
+    VALUES(#{instrumentId}, #{tradeDate}, #{ruleCode}, #{ruleVersion}, #{severity}, #{evidenceJson}, #{status}, #{synthetic})
+    ON DUPLICATE KEY UPDATE
+      severity= VALUES(severity),
+      evidence_json= VALUES(evidence_json),
+      status= VALUES(status)
+    ]]>
+  </insert>
+  <select id="lockInstrument" resultType="java.lang.Long">
+    SELECT id FROM instrument WHERE id=#{instrumentId} FOR UPDATE
+  </select>
+  <select id="latestRevisionHash" resultType="java.lang.String" parameterType="com.alphascope.signal.entity.SignalRevision">
+    SELECT content_hash FROM signal_revision
+    WHERE instrument_id=#{instrumentId} AND trade_date=#{tradeDate} AND rule_code=#{ruleCode}
+      AND rule_version=#{ruleVersion} AND is_synthetic=#{synthetic} ORDER BY id DESC LIMIT 1
+  </select>
+  <insert id="archive" parameterType="com.alphascope.signal.entity.SignalRevision">
+    INSERT INTO signal_revision(instrument_id,trade_date,rule_code,rule_version,severity,status,evidence_json,parameters_json,content_hash,is_synthetic)
+    VALUES(#{instrumentId},#{tradeDate},#{ruleCode},#{ruleVersion},#{severity},#{status},#{evidenceJson},#{parametersJson},#{contentHash},#{synthetic})
+  </insert>
+  <select id="replay" resultType="com.alphascope.signal.entity.SignalRevision" parameterType="com.alphascope.common.dto.InstrumentHistoryQuery">
+    SELECT r.id,r.instrument_id,r.trade_date,r.rule_code,r.rule_version,r.severity,r.status,r.evidence_json,r.parameters_json,r.content_hash,r.recorded_at,r.is_synthetic AS synthetic
+    FROM signal_revision r JOIN instrument i ON i.id=r.instrument_id
+    WHERE i.symbol=#{symbol} AND r.is_synthetic=#{synthetic} AND r.trade_date BETWEEN #{startDate} AND #{endDate}
+      AND r.recorded_at &lt; DATE_ADD(r.trade_date, INTERVAL 1 DAY)
+      AND NOT EXISTS (SELECT 1 FROM signal_revision n WHERE n.instrument_id=r.instrument_id
+        AND n.trade_date=r.trade_date AND n.rule_code=r.rule_code AND n.rule_version=r.rule_version
+        AND n.is_synthetic=r.is_synthetic AND n.recorded_at &lt; DATE_ADD(n.trade_date, INTERVAL 1 DAY)
+        AND (n.recorded_at &gt; r.recorded_at OR (n.recorded_at=r.recorded_at AND n.id &gt; r.id)))
+    ORDER BY r.trade_date,r.rule_code,r.id
+  </select>
+</mapper>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.industry.mapper.EvidenceMapper">
+  <insert id="source" useGeneratedKeys="true" keyProperty="id">
+    <![CDATA[
+    INSERT INTO source_document(source_type, url, title, published_at, fetched_at, content_hash,
+      content)
+    VALUES(#{sourceType}, #{url}, #{title}, #{publishedAt}, CURRENT_TIMESTAMP, #{contentHash}, #{content})
+    ]]>
+  </insert>
+
+  <insert id="metric">
+    <![CDATA[
+    INSERT INTO industry_metric(theme_id, metric_code, as_of_date, published_at, value, unit, source_document_id)
+    SELECT id, #{metricCode}, #{asOfDate}, #{publishedAt}, #{value}, #{unit}, #{sourceId}
+    FROM theme
+    WHERE code=#{themeCode}
+    ]]>
+  </insert>
+
+  <select id="metrics" resultType="com.alphascope.industry.dto.IndustryMetricDO">
+    <![CDATA[
+    SELECT
+      m.id,
+      m.theme_id,
+      m.metric_code,
+      m.as_of_date,
+      m.published_at,
+      m.value,
+      m.unit,
+      m.source_document_id,
+      m.created_at,
+      m.updated_at,
+      d.title,
+      d.url
+    FROM industry_metric m
+    JOIN theme t
+      ON t.id=m.theme_id
+    JOIN source_document d
+      ON d.id=m.source_document_id
+    WHERE t.code=#{code}
+      AND m.as_of_date<=#{date}
+      AND m.published_at<#{cutoff}
+      AND d.published_at<#{cutoff}
+    ORDER BY m.as_of_date DESC
+    LIMIT 100
+    ]]>
+  </select>
+
+  <select id="get" resultType="com.alphascope.industry.entity.SourceDocument">
+    <![CDATA[
+    SELECT id, source_type, url, title, published_at, fetched_at, content_hash
+    FROM source_document
+    WHERE id=#{id}
+    ]]>
+  </select>
+</mapper>

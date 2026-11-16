@@ -1,0 +1,76 @@
+# Mac / Docker Desktop：只容器化应用，数据库继续使用宿主机已有 MySQL。
+name: alphascope-local
+services:
+  app:
+    image: alphascope:0.1.0
+    build: { context: .., dockerfile: Dockerfile }
+    # 与本机用户一致，保留 .runtime 中既有的访问保护与文件权限。
+    user: "${ALPHASCOPE_LOCAL_UID:?请通过 scripts/run-docker.sh 启动}:${ALPHASCOPE_LOCAL_GID:?请通过 scripts/run-docker.sh 启动}"
+    environment:
+      SERVER_ADDRESS: 127.0.0.1
+      SERVER_PORT: 8080
+      SERVER_SHUTDOWN: graceful
+      SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 30s
+      ACCESS_MODE: LOCAL
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-alphascope}
+      MYSQL_USER: ${MYSQL_USER:-alphascope}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 配置本机数据库密码}
+      MARKET_PROVIDER: ${MARKET_PROVIDER:-multi}
+      MARKET_CHANNELS: ${MARKET_CHANNELS:-exchange-calendar,baostock,sina,eastmoney,tushare}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      BAOSTOCK_DAILY_BUDGET: ${BAOSTOCK_DAILY_BUDGET:-40000}
+      MARKET_CACHE_MINUTES: ${MARKET_CACHE_MINUTES:-1440}
+      MARKET_COOLDOWN_SECONDS: ${MARKET_COOLDOWN_SECONDS:-30}
+      POSITION_RISK_ENABLED: ${POSITION_RISK_ENABLED:-false}
+      FINANCIAL_SYNC_ENABLED: ${FINANCIAL_SYNC_ENABLED:-true}
+      JOB_STAGE_TIMEOUT: ${JOB_STAGE_TIMEOUT:-2h}
+      BACKTEST_MINIMUM_SAMPLES: ${BACKTEST_MINIMUM_SAMPLES:-20}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
+      BACKUP_ENABLED: "false"
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-none}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    volumes:
+      - ../.runtime:/app/.runtime
+    # 8081由同一网络命名空间内的入口监听；Java的8080只绑定回环。
+    ports: ["127.0.0.1:5173:8081"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 40s
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+  entry:
+    image: nginx:1.28-alpine
+    user: "10001:10001"
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    # 后端看到真实的容器内回环连接，无需扩大LOCAL信任地址或放宽鉴权。
+    network_mode: service:app
+    depends_on:
+      app: { condition: service_healthy, restart: true }
+    volumes:
+      - ./nginx.local.conf:/etc/nginx/nginx.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    mem_limit: 64m
+    pids_limit: 32
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

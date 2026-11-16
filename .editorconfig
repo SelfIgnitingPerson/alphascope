@@ -1,0 +1,13 @@
+# 编辑器与命令行使用相同的基础文本格式；Java/前端详细格式由 Spotless/Prettier 管理。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false

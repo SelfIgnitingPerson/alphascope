@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.fundamental.mapper.FinancialWriteMapper">
+  <select id="lockInstrument" resultType="java.lang.Long">
+    <![CDATA[
+    SELECT id FROM instrument WHERE id=#{id} FOR UPDATE
+    ]]>
+  </select>
+
+  <insert id="insert" parameterType="com.alphascope.fundamental.entity.FinancialReport">
+    <![CDATA[
+    INSERT INTO financial_report(instrument_id, period_end, report_type, published_at, version, revenue,
+      net_profit, operating_cashflow, gross_margin, revenue_yoy, profit_yoy, source)
+    VALUES(#{instrumentId}, #{periodEnd}, #{reportType}, #{publishedAt}, #{version}, #{revenue},
+      #{netProfit}, #{operatingCashflow}, #{grossMargin}, #{revenueYoy}, #{profitYoy}, #{source})
+    ]]>
+  </insert>
+</mapper>

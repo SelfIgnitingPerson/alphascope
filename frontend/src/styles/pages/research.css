@@ -1,0 +1,78 @@
+/* 个股详情与持仓表单 */
+.detail-heading,
+.stock-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 6px 0 24px;
+}
+
+.detail-heading h2,
+.stock-heading h2 {
+  margin: 8px 0 0;
+  font-size: 25px;
+  font-weight: 550;
+}
+
+.stock-heading p {
+  font-size: 11px;
+  margin: 12px 0 0;
+}
+
+.stock-heading__price {
+  text-align: right;
+}
+
+.stock-heading__price strong {
+  display: block;
+  font-size: 34px;
+  font-weight: 500;
+}
+
+.stock-heading__price span {
+  display: block;
+  color: #7f8ea2;
+  font-size: 11px;
+  margin-top: 7px;
+}
+
+.price-chart {
+  height: 390px;
+  width: 100%;
+}
+
+.evidence-block {
+  padding: 20px;
+}
+
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  gap: 20px;
+}
+
+.portfolio-grid .el-input-number {
+  width: 100%;
+}
+
+.account-form {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid #eef1f6;
+}
+
+.account-form label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.account-form small,
+.form-meta {
+  font-size: 11px;
+  color: #8090a5;
+}
+
+.form-meta {
+  margin: 20px 0 14px;
+}

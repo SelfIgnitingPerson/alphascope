@@ -1,0 +1,175 @@
+[
+  {
+    "code": "PCB_DISCLOSED_PEERS_20260321_PDF_VERIFIED_V2",
+    "themeCode": "PCB",
+    "title": "PCB制造披露同业样本（6只）",
+    "scope": "DISCLOSED_RESEARCH_SAMPLE",
+    "publishedAt": "2026-03-21T00:00:00",
+    "availableAt": "2026-03-22T00:00:00",
+    "sourceUrl": "https://static.cninfo.com.cn/finalpage/2026-03-21/1225020990.PDF",
+    "sourceTitle": "华兴会计师事务所：关于生益电子2025年度向特定对象发行股票申请文件审核问询函的回复",
+    "sourcePages": "PDF第33—35页",
+    "pdfSha256": "b175be55d1fd3105ffb3da5906045e6268dcd3891fa9351091392ce33b1ebf61",
+    "excerpt": "3、同行业可比公司情况。公司名称：沪电股份、深南电路、崇达技术、胜宏科技、广合科技、生益电子。",
+    "definition": "采用披露文件同业比较表列示的全部六家作为固定研究样本；是PCB制造子样本，未覆盖全部PCB/CCL产业链，不是官方行业指数成分。业务组合和客户结构有差异，不能由相关性推断相同订单。",
+    "members": [
+      {
+        "symbol": "002463.SZ",
+        "name": "沪电股份"
+      },
+      {
+        "symbol": "002916.SZ",
+        "name": "深南电路"
+      },
+      {
+        "symbol": "002815.SZ",
+        "name": "崇达技术"
+      },
+      {
+        "symbol": "300476.SZ",
+        "name": "胜宏科技"
+      },
+      {
+        "symbol": "001389.SZ",
+        "name": "广合科技"
+      },
+      {
+        "symbol": "688183.SH",
+        "name": "生益电子"
+      }
+    ],
+    "verifiedAt": "2026-11-01T12:10:48"
+  },
+  {
+    "code": "COOLING_DISCLOSED_PEERS_20260522",
+    "themeCode": "COOLING",
+    "title": "液冷散热机组披露企业样本（3只）",
+    "scope": "DISCLOSED_RESEARCH_SAMPLE",
+    "publishedAt": "2026-05-22T00:00:00",
+    "availableAt": "2026-05-23T00:00:00",
+    "sourceUrl": "https://static.cninfo.com.cn/finalpage/2026-05-22/1225326846.PDF",
+    "sourceTitle": "浙商证券：关于爱克股份发行股份购买资产审核问询函回复之核查意见",
+    "sourcePages": "PDF第12页，液冷散热机组主要企业表",
+    "pdfSha256": "4933757a1e70063456506de2d63d9ee9b68295db804a8ff92b76ccb11f0ac4d7",
+    "excerpt": "液冷散热机组市场主要企业包括：英维克（002837.SZ）、申菱环境（301018.SZ）、高澜股份（300499.SZ）等。",
+    "definition": "采用该披露表中明确列示的三家液冷散热机组企业作为固定研究样本；不含全部液冷产业链，也不等同于数据中心液冷专营公司。样本覆盖率不代表行业覆盖率。",
+    "members": [
+      {
+        "symbol": "002837.SZ",
+        "name": "英维克"
+      },
+      {
+        "symbol": "301018.SZ",
+        "name": "申菱环境"
+      },
+      {
+        "symbol": "300499.SZ",
+        "name": "高澜股份"
+      }
+    ],
+    "verifiedAt": "2026-10-31T22:22:37"
+  },
+  {
+    "code": "CPO_DISCLOSED_MODULE_PEERS_20240824",
+    "themeCode": "CPO",
+    "title": "光模块披露可比公司样本（4只）",
+    "scope": "DISCLOSED_RESEARCH_SAMPLE",
+    "publishedAt": "2024-08-24T00:00:00",
+    "availableAt": "2024-08-25T00:00:00",
+    "sourceUrl": "https://static.cninfo.com.cn/finalpage/2024-08-24/1220964487.PDF",
+    "sourceTitle": "万通发展：关于上海证券交易所重组草案信息披露问询函的回复公告",
+    "sourcePages": "PDF第52页，“标的公司及同行业可比公司平均销售价格对比”表",
+    "pdfSha256": "1236ce136c1a226a1ee5e42857c4679e55007d7a6e9660b924bd4d7b72ffdd4f",
+    "excerpt": "表中列示的可比公司为中际旭创、新易盛、联特科技、光迅科技。",
+    "definition": "采用该比较表中全部四家A股可比公司作为固定光模块研究样本，不包含非上市标的索尔思光电；覆盖的是光模块可比公司，不是纯CPO业务名单，也不是全部光模块/光器件产业链。不同速率产品、客户和业务结构存在差异，行情共振不能证明CPO订单或营收增长。",
+    "members": [
+      {
+        "symbol": "300308.SZ",
+        "name": "中际旭创"
+      },
+      {
+        "symbol": "300502.SZ",
+        "name": "新易盛"
+      },
+      {
+        "symbol": "301205.SZ",
+        "name": "联特科技"
+      },
+      {
+        "symbol": "002281.SZ",
+        "name": "光迅科技"
+      }
+    ],
+    "verifiedAt": "2026-11-12T22:25:36"
+  },
+  {
+    "code": "SEMI_EQUIPMENT_DISCLOSED_PEERS_20260127",
+    "themeCode": "SEMI_EQUIPMENT",
+    "title": "半导体设备披露可比公司样本（6只）",
+    "scope": "DISCLOSED_RESEARCH_SAMPLE",
+    "publishedAt": "2026-01-27T00:00:00",
+    "availableAt": "2026-01-28T00:00:00",
+    "sourceUrl": "https://static.cninfo.com.cn/finalpage/2026-01-27/1224950733.PDF",
+    "sourceTitle": "天健会计师事务所：长川科技向特定对象发行股票审核问询函专项说明（天健函〔2026〕69号）",
+    "sourcePages": "PDF第10页（印刷页7-2-9），“与同行业可比公司是否一致—营业收入”表",
+    "pdfSha256": "2ce2a850de4b3d89969839578a7787450e991377750508f07265dd50e6f41d91",
+    "excerpt": "该比较表列示华峰测控、联动科技、金海通、北方华创、中微公司、盛美上海六家可比公司。",
+    "definition": "采用表中全部六家明确列名的可比上市公司，不包含披露主体长川科技。样本同时包含前道制程与后道测试设备，客户和周期驱动有差异；仅用于固定设备同业样本观察，不代表完整半导体设备行业或全部AI制造环节，不能把等权行情表现解释为各设备细分订单同步增长。",
+    "members": [
+      {
+        "symbol": "688200.SH",
+        "name": "华峰测控"
+      },
+      {
+        "symbol": "301369.SZ",
+        "name": "联动科技"
+      },
+      {
+        "symbol": "603061.SH",
+        "name": "金海通"
+      },
+      {
+        "symbol": "002371.SZ",
+        "name": "北方华创"
+      },
+      {
+        "symbol": "688012.SH",
+        "name": "中微公司"
+      },
+      {
+        "symbol": "688082.SH",
+        "name": "盛美上海"
+      }
+    ],
+    "verifiedAt": "2026-11-12T22:25:36"
+  },
+  {
+    "code": "MEMORY_DISCLOSED_MODULE_PEERS_20260714",
+    "themeCode": "MEMORY",
+    "title": "存储模组披露可比公司样本（3只）",
+    "scope": "DISCLOSED_RESEARCH_SAMPLE",
+    "publishedAt": "2026-07-14T00:00:00",
+    "availableAt": "2026-07-15T00:00:00",
+    "sourceUrl": "https://static.cninfo.com.cn/finalpage/2026-07-14/1225422655.PDF",
+    "sourceTitle": "恒尚节能：关于上海证券交易所重大资产购买预案信息披露问询函的回复公告（2026-040）",
+    "sourcePages": "PDF第9页，“市场规模及竞争格局”可比公司表",
+    "pdfSha256": "03f20e61e097d6fce2eb062b5ef0d40b1ace37f35a706de9ae16cff4af74335a",
+    "excerpt": "该表列示江波龙、佰维存储、德明利三家A股可比公司。",
+    "definition": "采用披露表中全部三家已上市存储模组可比公司，不包含非上市标的金胜电子。该样本侧重存储产品及模组，不覆盖全部DRAM/NAND原厂、存储芯片设计、主控和封测企业，不等于HBM或AI存储纯业务名单；产品结构与收入构成不同，样本股价表现不能替代存储价格、库存及订单证据。",
+    "members": [
+      {
+        "symbol": "301308.SZ",
+        "name": "江波龙"
+      },
+      {
+        "symbol": "688525.SH",
+        "name": "佰维存储"
+      },
+      {
+        "symbol": "001309.SZ",
+        "name": "德明利"
+      }
+    ],
+    "verifiedAt": "2026-11-12T22:25:36"
+  }
+]

@@ -1,0 +1,25 @@
+/* 登录与邀请注册 */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #f4f7fa;
+}
+.login-card {
+  width: min(100%, 460px);
+  padding: 36px;
+  border: 1px solid #dce3ec;
+  border-radius: 18px;
+  background: #fff;
+}
+.login-form {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0;
+}
+.login-form label {
+  font-weight: 600;
+}

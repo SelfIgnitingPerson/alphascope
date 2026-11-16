@@ -1,0 +1,70 @@
+name: alphascope-production
+services:
+  mysql:
+    image: mysql:8.0.40
+    environment:
+      MYSQL_DATABASE: alphascope
+      MYSQL_USER: alphascope
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置数据库密码}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置数据库管理密码}
+      TZ: Asia/Shanghai
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    networks: [database]
+  backend:
+    image: ${ALPHASCOPE_IMAGE:-alphascope:0.1.0}
+    build: { context: .., dockerfile: Dockerfile }
+    environment:
+      SPRING_PROFILES_ACTIVE: production
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/alphascope?connectionTimeZone=Asia/Shanghai&connectTimeout=10000&socketTimeout=30000
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置数据库密码}
+      PUBLIC_ORIGINS: https://${PUBLIC_HOST:?请设置实际域名}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?请设置首次管理员名称}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请设置至少12字符的首次管理员密码}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
+      REGISTRATION_INVITATION: ${REGISTRATION_INVITATION:-}
+      MARKET_PROVIDER: multi
+      MARKET_CHANNELS: ${MARKET_CHANNELS:-exchange-calendar,baostock,sina,eastmoney,tushare}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-false}
+      BACKUP_ENABLED: "false"
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-none}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    depends_on:
+      mysql: { condition: service_healthy }
+    volumes: ["runtime:/app/.runtime"]
+    expose: ["8080"]
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 2
+    read_only: true
+    tmpfs: ["/tmp:size=128m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [database, edge]
+  gateway:
+    image: caddy:2-alpine
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?请设置实际域名}
+      ACME_EMAIL: ${ACME_EMAIL:?请设置证书通知邮箱}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [backend]
+    restart: unless-stopped
+    networks: [edge]
+volumes:
+  mysql-data:
+  runtime:
+  caddy-data:
+  caddy-config:
+networks:
+  database: { internal: true }
+  edge:

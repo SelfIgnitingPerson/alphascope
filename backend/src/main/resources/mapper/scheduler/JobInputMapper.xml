@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.scheduler.mapper.JobInputMapper">
+  <select id="state" resultType="com.alphascope.scheduler.dto.JobInputState">
+    <![CDATA[
+    SELECT CONCAT((
+        SELECT COUNT(*)
+        FROM market_data_revision
+        WHERE trade_date<=#{date}
+          AND is_synthetic=#{synthetic}
+      ), ':', (
+        SELECT COALESCE(MAX(id), 0)
+        FROM market_data_revision
+        WHERE trade_date<=#{date}
+          AND is_synthetic=#{synthetic}
+      )) prices, (
+      SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(id), 0))
+      FROM financial_report
+      WHERE published_at<=TIMESTAMP(#{date}, '16:10:00')
+        AND COALESCE(available_at, published_at)<=TIMESTAMP(#{date}, '16:10:00')
+    ) financials, (
+      SELECT COALESCE(MAX(id), 0)
+      FROM market_breadth_snapshot
+      WHERE trade_date=#{date}
+        AND #{synthetic}=0
+    ) marketBreadth, (
+      SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(updated_at), ''))
+      FROM industry_metric
+      WHERE published_at<DATE_ADD(#{date}, INTERVAL 1 DAY)
+    ) industry, (
+      SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(updated_at), ''))
+      FROM instrument_theme
+      WHERE effective_from<=#{date}
+    ) membership, (
+      SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(id), 0))
+      FROM theme_research_cohort
+      WHERE available_at<=TIMESTAMP(#{date}, '16:10:00')
+        AND effective_from<=#{date}
+    ) cohorts, (
+      SELECT COALESCE(MAX(id), 0)
+      FROM market_observation_snapshot
+      WHERE trade_date=#{date}
+        AND #{synthetic}=0
+    ) marketObservation, (
+      SELECT CONCAT(COUNT(*), ':', COALESCE(MAX(id), 0))
+      FROM earnings_forecast_snapshot
+      WHERE available_at<=TIMESTAMP(#{date}, '16:10:00')
+        AND #{synthetic}=0
+    ) forecasts
+    ]]>
+  </select>
+</mapper>

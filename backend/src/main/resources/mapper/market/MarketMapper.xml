@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.market.mapper.MarketMapper">
+  <!-- Java 布尔属性不使用 is 前缀；数据库列及冻结 JSON 保留 is_synthetic。 -->
+  <resultMap id="marketBarDOResult" type="com.alphascope.market.dto.MarketBarDO" autoMapping="true">
+    <result column="is_synthetic" property="synthetic"/>
+  </resultMap>
+
+  <select id="instrument" resultType="com.alphascope.market.entity.Instrument">
+    <![CDATA[
+    SELECT id,symbol,name,exchange,type,active FROM instrument WHERE symbol=#{symbol}
+    ]]>
+  </select>
+
+  <select id="instruments" resultType="com.alphascope.market.entity.Instrument">
+    <![CDATA[
+    SELECT id, symbol, name, exchange, type, active
+    FROM instrument
+    WHERE symbol LIKE CONCAT('%', #{q}, '%')
+      OR name LIKE CONCAT('%', #{q}, '%')
+    ORDER BY id
+    LIMIT #{size}
+    OFFSET #{offset}
+    ]]>
+  </select>
+
+  <select id="bars" resultMap="marketBarDOResult" parameterType="com.alphascope.market.dto.MarketBarQuery">
+    <![CDATA[
+    SELECT
+      b.id,
+      b.instrument_id,
+      b.trade_date,
+      b.open,
+      b.high,
+      b.low,
+      b.close,
+      b.volume,
+      b.amount,
+      b.source,
+      b.fetched_at,
+      b.batch_id,
+      b.is_synthetic,
+      b.created_at,
+      b.updated_at,
+      f.factor
+    FROM daily_bar b
+    JOIN instrument i
+      ON i.id=b.instrument_id
+    LEFT JOIN adjustment_factor f
+      ON f.instrument_id=b.instrument_id
+      AND f.trade_date=b.trade_date
+      AND f.source=b.source
+      AND f.is_synthetic=b.is_synthetic
+    WHERE i.symbol=#{symbol}
+      AND b.is_synthetic=#{synthetic}
+      AND b.source=#{source}
+      AND b.trade_date BETWEEN #{startDate} AND #{endDate}
+    ORDER BY b.trade_date
+    ]]>
+  </select>
+
+  <insert id="saveBar">
+    <![CDATA[
+    INSERT INTO daily_bar(instrument_id, trade_date, open, high, low, close, volume, amount, source,
+      fetched_at, batch_id, is_synthetic)
+    VALUES(#{instrumentId}, #{tradeDate}, #{open}, #{high}, #{low}, #{close}, #{volume}, #{amount},
+      #{source}, #{fetchedAt}, #{batchId}, #{synthetic})
+    ON DUPLICATE KEY UPDATE
+      open= VALUES(open),
+      high= VALUES(high),
+      low= VALUES(low),
+      close= VALUES(close),
+      volume= VALUES(volume),
+      amount= VALUES(amount),
+      source= VALUES(source),
+      fetched_at= VALUES(fetched_at),
+      batch_id= VALUES(batch_id),
+      is_synthetic= VALUES(is_synthetic)
+    ]]>
+  </insert>
+
+  <insert id="factor">
+    <![CDATA[
+    INSERT INTO adjustment_factor(instrument_id, trade_date, factor, source, is_synthetic)
+    VALUES(#{instrumentId}, #{tradeDate}, #{factor}, #{source}, #{synthetic})
+    ON DUPLICATE KEY UPDATE
+      factor= VALUES(factor),
+      source= VALUES(source)
+    ]]>
+  </insert>
+
+  <insert id="audit">
+    <![CDATA[
+    INSERT INTO daily_bar_audit(instrument_id, trade_date, batch_id, old_value, new_value)
+    VALUES(#{instrumentId}, #{tradeDate}, #{batchId}, #{oldValue}, #{newValue})
+    ]]>
+  </insert>
+
+  <insert id="calendar" parameterType="com.alphascope.market.dto.TradingCalendarWriteCommand">
+    <![CDATA[
+    INSERT INTO trading_calendar(trade_date, exchange, is_open, is_synthetic, source)
+    VALUES(#{tradeDate}, 'SSE', #{open}, #{synthetic}, #{source})
+    ON DUPLICATE KEY UPDATE
+      is_open= VALUES(is_open),
+      is_synthetic= VALUES(is_synthetic),
+      source= VALUES(source)
+    ]]>
+  </insert>
+
+  <select id="isOpen" resultType="java.lang.Boolean">
+    <![CDATA[
+    SELECT is_open
+    FROM trading_calendar
+    WHERE trade_date=#{date}
+      AND exchange='SSE'
+      AND is_synthetic=#{synthetic}
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+    ]]>
+  </select>
+
+  <select id="lastOpen" resultType="java.time.LocalDate">
+    <![CDATA[
+    SELECT MAX(trade_date)
+    FROM trading_calendar
+    WHERE trade_date BETWEEN #{start} AND #{end}
+      AND exchange='SSE'
+      AND is_open=1
+      AND is_synthetic=#{synthetic}
+    ]]>
+  </select>
+
+  <select id="latestSources" resultType="com.alphascope.market.dto.MarketSourceDO">
+    <![CDATA[
+    SELECT i.symbol, b.source, b.trade_date, b.fetched_at, b.batch_id
+    FROM daily_bar b
+    JOIN instrument i
+      ON i.id=b.instrument_id
+    WHERE b.is_synthetic=#{synthetic}
+      AND b.id=(
+      SELECT x.id
+      FROM daily_bar x
+      WHERE x.instrument_id=b.instrument_id
+        AND x.is_synthetic=#{synthetic}
+      ORDER BY x.trade_date DESC, x.fetched_at DESC
+      LIMIT 1
+    )
+    ORDER BY i.symbol
+    ]]>
+  </select>
+
+  <select id="latestSourceAt" resultType="java.lang.String">
+    <![CDATA[
+    SELECT source
+    FROM daily_bar
+    WHERE instrument_id=#{id}
+      AND is_synthetic=#{synthetic}
+      AND trade_date<=#{date}
+    ORDER BY trade_date DESC, fetched_at DESC, id DESC
+    LIMIT 1
+    ]]>
+  </select>
+
+  <select id="openDates" resultType="java.time.LocalDate">
+    <![CDATA[
+    SELECT DISTINCT trade_date
+    FROM trading_calendar
+    WHERE trade_date BETWEEN #{start} AND #{end}
+      AND is_open=1
+      AND is_synthetic=#{synthetic}
+    ORDER BY trade_date
+    ]]>
+  </select>
+
+  <select id="calendarDays" resultType="long">
+    <![CDATA[
+    SELECT COUNT(DISTINCT trade_date)
+    FROM trading_calendar
+    WHERE trade_date BETWEEN #{start} AND #{end}
+      AND is_synthetic=#{synthetic}
+    ]]>
+  </select>
+
+  <select id="listedAt" resultType="java.time.LocalDate">
+    <![CDATA[
+    SELECT listed_at FROM instrument WHERE id=#{id}
+    ]]>
+  </select>
+
+  <select id="suspensions" resultType="java.time.LocalDate" parameterType="com.alphascope.market.dto.SuspensionQuery">
+    <![CDATA[
+    SELECT trade_date
+    FROM instrument_day_status
+    WHERE instrument_id=#{instrumentId}
+      AND source=#{source}
+      AND is_synthetic=#{synthetic}
+      AND status='SUSPENDED'
+      AND trade_date BETWEEN #{startDate} AND #{endDate}
+    ]]>
+  </select>
+
+  <insert id="suspension" parameterType="com.alphascope.market.dto.SuspensionWriteCommand">
+    <![CDATA[
+    INSERT INTO instrument_day_status
+    VALUES(#{instrumentId}, #{tradeDate}, #{source}, #{synthetic}, 'SUSPENDED', #{batchId})
+    ON DUPLICATE KEY UPDATE
+      batch_id= VALUES(batch_id),
+      status= VALUES(status)
+    ]]>
+  </insert>
+
+  <insert id="revision">
+    <![CDATA[
+    INSERT INTO market_data_revision(instrument_id, trade_date, source, is_synthetic, batch_id, fetched_at,
+      content_hash, bar_json, recorded_at, algorithm_version)
+    VALUES(#{instrumentId}, #{tradeDate}, #{source}, #{synthetic}, #{batchId}, #{fetchedAt}, #{contentHash},
+      #{newValue}, CURRENT_TIMESTAMP(6), 'RAW_V2')
+    ]]>
+  </insert>
+
+  <select id="instrumentCount" resultType="long">
+    <![CDATA[
+    SELECT COUNT(*)
+    FROM instrument
+    WHERE symbol LIKE CONCAT('%', #{q}, '%')
+      OR name LIKE CONCAT('%', #{q}, '%')
+    ]]>
+  </select>
+
+  <delete id="removeSuspendedBar" parameterType="com.alphascope.market.dto.SuspensionWriteCommand">
+    <![CDATA[
+    DELETE FROM daily_bar
+    WHERE instrument_id=#{instrumentId}
+      AND trade_date=#{tradeDate}
+      AND source=#{source}
+      AND is_synthetic=#{synthetic}
+    ]]>
+  </delete>
+
+  <delete id="removeSuspendedFactor" parameterType="com.alphascope.market.dto.SuspensionWriteCommand">
+    <![CDATA[
+    DELETE FROM adjustment_factor
+    WHERE instrument_id=#{instrumentId}
+      AND trade_date=#{tradeDate}
+      AND source=#{source}
+      AND is_synthetic=#{synthetic}
+    ]]>
+  </delete>
+
+  <delete id="clearSuspension" parameterType="com.alphascope.market.dto.SuspensionWriteCommand">
+    <![CDATA[
+    DELETE FROM instrument_day_status
+    WHERE instrument_id=#{instrumentId}
+      AND trade_date=#{tradeDate}
+      AND source=#{source}
+      AND is_synthetic=#{synthetic}
+    ]]>
+  </delete>
+  <select id="replaySources" resultType="java.lang.String" parameterType="com.alphascope.common.dto.InstrumentHistoryQuery">
+    SELECT r.source FROM market_data_revision r JOIN instrument i ON i.id=r.instrument_id
+    WHERE i.symbol=#{symbol} AND r.is_synthetic=#{synthetic}
+      AND r.trade_date BETWEEN #{startDate} AND #{endDate}
+      AND r.algorithm_version='RAW_V2' AND r.recorded_at &lt; DATE_ADD(r.trade_date, INTERVAL 1 DAY)
+      AND r.fetched_at &lt; DATE_ADD(r.trade_date, INTERVAL 1 DAY)
+    GROUP BY r.source ORDER BY MAX(r.trade_date) DESC, MAX(r.id) DESC
+  </select>
+  <select id="replayBars" resultType="com.alphascope.market.dto.MarketRevisionDO" parameterType="com.alphascope.market.dto.MarketBarQuery">
+    SELECT r.id, r.bar_json, r.recorded_at FROM market_data_revision r
+    JOIN instrument i ON i.id=r.instrument_id
+    WHERE i.symbol=#{symbol} AND r.source=#{source} AND r.is_synthetic=#{synthetic}
+      AND r.trade_date BETWEEN #{startDate} AND #{endDate}
+      AND r.algorithm_version='RAW_V2' AND r.recorded_at &lt; DATE_ADD(r.trade_date, INTERVAL 1 DAY)
+      AND r.fetched_at &lt; DATE_ADD(r.trade_date, INTERVAL 1 DAY)
+      AND NOT EXISTS (
+        SELECT 1 FROM market_data_revision n WHERE n.instrument_id=r.instrument_id
+          AND n.trade_date=r.trade_date AND n.source=r.source AND n.is_synthetic=r.is_synthetic
+          AND n.algorithm_version='RAW_V2' AND n.recorded_at &lt; DATE_ADD(n.trade_date, INTERVAL 1 DAY)
+          AND n.fetched_at &lt; DATE_ADD(n.trade_date, INTERVAL 1 DAY)
+          AND (n.recorded_at &gt; r.recorded_at OR (n.recorded_at=r.recorded_at AND n.id &gt; r.id))
+      )
+    ORDER BY r.trade_date
+  </select>
+  <select id="replayCalendar" resultType="com.alphascope.market.dto.CalendarRevisionDO" parameterType="com.alphascope.market.dto.TradingDatesQuery">
+    SELECT c.id, c.trade_date, c.is_open AS `open`, c.source, c.updated_at
+    FROM trading_calendar c WHERE c.trade_date BETWEEN #{start} AND #{end}
+      AND c.exchange='SSE' AND c.is_synthetic=0
+      AND c.updated_at &lt; DATE_ADD(c.trade_date, INTERVAL 1 DAY)
+      AND NOT EXISTS (SELECT 1 FROM trading_calendar n WHERE n.trade_date=c.trade_date
+        AND n.exchange=c.exchange AND n.is_synthetic=c.is_synthetic
+        AND n.updated_at &lt; DATE_ADD(n.trade_date, INTERVAL 1 DAY)
+        AND (n.updated_at &gt; c.updated_at OR (n.updated_at=c.updated_at AND n.id &gt; c.id)))
+    ORDER BY c.trade_date
+  </select>
+</mapper>

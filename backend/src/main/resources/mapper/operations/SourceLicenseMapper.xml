@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.operations.mapper.SourceLicenseMapper">
+ <insert id="save" useGeneratedKeys="true" keyProperty="id">INSERT INTO source_license(source,permissions_json,evidence_url,reference,valid_from,valid_until,reviewer_id,content_hash) VALUES(#{source},#{permissionsJson},#{evidenceUrl},#{reference},#{validFrom},#{validUntil},#{reviewerId},#{contentHash})</insert>
+ <select id="latest" resultType="com.alphascope.operations.entity.SourceLicense">SELECT id,source,permissions_json,evidence_url,reference,valid_from,valid_until,reviewer_id,content_hash,created_at FROM source_license WHERE id IN (SELECT MAX(id) FROM source_license GROUP BY source) ORDER BY source</select>
+</mapper>

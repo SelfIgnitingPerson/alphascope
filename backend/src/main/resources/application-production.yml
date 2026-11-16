@@ -1,0 +1,36 @@
+# PUBLIC模式具有会话、CSRF、用户隔离；外网TLS终止由同源网关负责。
+server:
+  address: 0.0.0.0
+  forward-headers-strategy: none
+  shutdown: graceful
+  tomcat:
+    max-connections: 256
+    accept-count: 64
+    threads:
+      max: 80
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    hikari:
+      maximum-pool-size: 12
+      minimum-idle: 2
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          max-age: 1h
+alphascope:
+  access:
+    mode: PUBLIC
+    secure-cookie: true
+    origins: ${PUBLIC_ORIGINS}
+  product:
+    enforce-source-license: true
+    monitor-enabled: true
+  provider: ${MARKET_PROVIDER:multi}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.market.mapper.MarketBreadthMapper">
+  <select id="coverageCandidates" resultType="com.alphascope.market.entity.MarketBreadthSnapshot">
+    SELECT id, trade_date, universe_scope, source, content_hash, fetched_at
+    FROM market_breadth_snapshot WHERE id IN (
+      SELECT MAX(id) FROM market_breadth_snapshot
+      WHERE trade_date=#{date} AND universe_scope IN ('SH_SZ_A','FULL_A') GROUP BY source, universe_scope
+    ) ORDER BY CASE WHEN universe_scope='FULL_A' THEN 0 ELSE 1 END, id DESC
+  </select>
+  <select id="coverageRaw" resultType="java.lang.String">
+    SELECT raw_json FROM market_breadth_snapshot WHERE id=#{id}
+  </select>
+  <select id="forSource" resultType="com.alphascope.market.entity.MarketBreadthSnapshot" parameterType="com.alphascope.market.dto.ResearchSnapshotQuery">
+    SELECT id, trade_date, universe_scope, source, content_hash, metrics_json,
+      CASE WHEN #{loadRaw} THEN raw_json ELSE NULL END AS raw_json, fetched_at
+    FROM market_breadth_snapshot
+    WHERE id=(
+      SELECT MAX(id) FROM market_breadth_snapshot
+      WHERE trade_date=#{date} AND universe_scope='SH_SZ_A' AND source=#{source}
+    )
+  </select>
+
+  <insert id="save" parameterType="com.alphascope.market.entity.MarketBreadthSnapshot">
+    <![CDATA[
+    INSERT IGNORE INTO market_breadth_snapshot(trade_date, universe_scope, source, content_hash,
+      metrics_json, raw_json, fetched_at)
+    VALUES(#{tradeDate}, 'SH_SZ_A', COALESCE(#{source}, 'BAOSTOCK'), #{contentHash}, #{metricsJson}, #{rawJson}, #{fetchedAt})
+    ]]>
+  </insert>
+</mapper>

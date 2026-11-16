@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.fundamental.mapper.FundamentalMapper">
+  <select id="reports" resultType="com.alphascope.fundamental.entity.FinancialReport">
+    <![CDATA[
+    SELECT
+      f.id,
+      f.instrument_id,
+      f.period_end,
+      f.report_type,
+      f.published_at,
+      f.version,
+      f.revenue,
+      f.net_profit,
+      f.operating_cashflow,
+      f.gross_margin,
+      f.revenue_yoy,
+      f.profit_yoy,
+      f.source,
+      f.created_at,
+      f.updated_at,
+      f.available_at,
+      f.publication_precision,
+      f.vendor_updated_at,
+      f.fetched_at,
+      f.content_hash,
+      f.source_url,
+      f.raw_json
+    FROM financial_report f
+    JOIN instrument i
+      ON i.id=f.instrument_id
+    WHERE i.symbol=#{symbol}
+      AND f.published_at <= #{cutoff}
+      AND COALESCE(f.available_at, f.published_at)<=#{cutoff}
+    ORDER BY period_end DESC, version DESC
+    LIMIT 100
+    ]]>
+  </select>
+</mapper>

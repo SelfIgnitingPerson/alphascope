@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.intelligence.mapper.ReportMapper">
+  <!-- Java 布尔属性不使用 is 前缀；数据库列及冻结 JSON 保留 is_synthetic。 -->
+  <resultMap id="analysisReportResult" type="com.alphascope.intelligence.entity.AnalysisReport" autoMapping="true">
+    <result column="is_synthetic" property="synthetic"/>
+  </resultMap>
+
+  <select id="list" resultMap="analysisReportResult" parameterType="com.alphascope.intelligence.dto.ReportQuery">
+    <![CDATA[
+    SELECT id, report_type, business_date, revision, status, model, prompt_version, data_as_of, collected_at,
+      is_synthetic, algorithm_version, data_scope, input_hash
+    FROM analysis_report a
+    WHERE is_synthetic=#{synthetic}
+      AND report_type=#{reportType}
+      AND business_date BETWEEN #{startDate} AND #{endDate}
+      AND (#{latestOnly}=FALSE
+        OR NOT EXISTS(
+        SELECT 1
+        FROM analysis_report newer
+        WHERE newer.report_type=a.report_type
+          AND newer.business_date=a.business_date
+          AND newer.is_synthetic=a.is_synthetic
+          AND newer.revision>a.revision
+      ))
+    ORDER BY business_date DESC, revision DESC
+    LIMIT #{size}
+    OFFSET #{offset}
+    ]]>
+  </select>
+
+  <select id="get" resultMap="analysisReportResult">
+    <![CDATA[
+    SELECT
+      id,
+      report_type,
+      business_date,
+      revision,
+      status,
+      model,
+      prompt_version,
+      input_hash,
+      token_usage,
+      content_json,
+      content_md,
+      data_as_of,
+      is_synthetic,
+      created_at,
+      updated_at,
+      collected_at,
+      algorithm_version,
+      data_scope,
+      job_id
+    FROM analysis_report WHERE id=#{id}
+    ]]>
+  </select>
+
+  <select id="sources" resultType="com.alphascope.intelligence.entity.ReportSource">
+    <![CDATA[
+    SELECT source_document_id,data_reference FROM report_source WHERE report_id=#{id}
+    ]]>
+  </select>
+
+  <select id="revision" resultType="int">
+    <![CDATA[
+    SELECT COALESCE(MAX(revision), 0)+1
+    FROM analysis_report
+    WHERE report_type=#{type}
+      AND business_date=#{date}
+    ]]>
+  </select>
+
+  <insert id="save" useGeneratedKeys="true" keyProperty="id">
+    <![CDATA[
+    INSERT INTO analysis_report( report_type, business_date, revision, status, model, prompt_version,
+      input_hash, content_json, content_md, data_as_of, is_synthetic, collected_at, algorithm_version,
+      data_scope, job_id)
+    VALUES ( #{reportType}, #{businessDate}, #{revision}, 'SUCCESS', #{model}, #{promptVersion}, #{inputHash}, #{contentJson},
+      #{contentMd}, #{dataAsOf}, #{synthetic}, #{collectedAt}, #{algorithmVersion}, #{dataScope}, #{jobId})
+    ]]>
+  </insert>
+
+  <insert id="source">
+    <![CDATA[
+    INSERT INTO report_source(report_id,data_reference) VALUES(#{id},#{reference})
+    ]]>
+  </insert>
+
+  <insert id="input">
+    <![CDATA[
+    INSERT INTO report_input_snapshot(report_id,input_json) VALUES(#{id},#{input})
+    ]]>
+  </insert>
+
+  <select id="count" resultType="long" parameterType="com.alphascope.intelligence.dto.ReportQuery">
+    <![CDATA[
+    SELECT COUNT(*)
+    FROM analysis_report a
+    WHERE is_synthetic=#{synthetic}
+      AND report_type=#{reportType}
+      AND business_date BETWEEN #{startDate} AND #{endDate}
+      AND (#{latestOnly}=FALSE
+        OR NOT EXISTS(
+        SELECT 1
+        FROM analysis_report newer
+        WHERE newer.report_type=a.report_type
+          AND newer.business_date=a.business_date
+          AND newer.is_synthetic=a.is_synthetic
+          AND newer.revision>a.revision
+      ))
+    ]]>
+  </select>
+
+  <select id="versions" resultMap="analysisReportResult">
+    <![CDATA[
+    SELECT
+      id,
+      report_type,
+      business_date,
+      revision,
+      status,
+      model,
+      prompt_version,
+      input_hash,
+      token_usage,
+      content_json,
+      content_md,
+      data_as_of,
+      is_synthetic,
+      created_at,
+      updated_at,
+      collected_at,
+      algorithm_version,
+      data_scope,
+      job_id
+    FROM analysis_report
+    WHERE report_type=#{type}
+      AND business_date=#{date}
+      AND is_synthetic=#{synthetic}
+    ORDER BY revision DESC
+    ]]>
+  </select>
+
+  <select id="snapshot" resultType="java.lang.String">
+    <![CDATA[
+    SELECT input_json FROM report_input_snapshot WHERE report_id=#{id}
+    ]]>
+  </select>
+</mapper>

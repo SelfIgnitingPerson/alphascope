@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.operations.mapper.PlatformCapacityMapper">
+ <select id="usage" resultType="com.alphascope.operations.vo.PlatformUsage">
+ SELECT (SELECT COUNT(*) FROM job_execution WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_jobs,
+ (SELECT COUNT(*) FROM research_validation_task WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_validations,
+ (SELECT COALESCE(SUM(OCTET_LENGTH(evidence_json)),0) FROM research_validation_task) AS evidence_bytes
+ </select>
+</mapper>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.backtest.mapper.ExperimentMapper">
+  <sql id="metadata">id,symbol,data_scope,availability_mode,method_version,input_hash,result_hash,created_at</sql>
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO validation_experiment(symbol,data_scope,availability_mode,method_version,request_json,snapshot_json,result_json,input_hash,result_hash)
+    VALUES(#{symbol},#{dataScope},#{availabilityMode},#{methodVersion},#{requestJson},#{snapshotJson},#{resultJson},#{inputHash},#{resultHash})
+  </insert>
+  <select id="get" resultType="com.alphascope.backtest.entity.ValidationExperiment">
+    SELECT <include refid="metadata"/>,request_json,snapshot_json,result_json FROM validation_experiment WHERE id=#{id}
+  </select>
+  <select id="page" resultType="com.alphascope.backtest.entity.ValidationExperiment">
+    SELECT <include refid="metadata"/> FROM validation_experiment ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
+  </select>
+  <select id="count" resultType="long">SELECT COUNT(*) FROM validation_experiment</select>
+</mapper>

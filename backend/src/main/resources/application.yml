@@ -1,0 +1,73 @@
+server:
+  address: 127.0.0.1
+  port: 8080
+spring:
+  jackson:
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:alphascope}?connectionTimeZone=Asia/Shanghai&connectTimeout=10000&socketTimeout=30000
+    username: ${MYSQL_USER:alphascope}
+    password: ${MYSQL_PASSWORD}
+    hikari:
+      connection-timeout: 10000
+      validation-timeout: 5000
+      connection-init-sql: "SET time_zone = '+08:00'"
+  flyway:
+    enabled: true
+  ai:
+    model:
+      chat: ${AI_CHAT_MODEL:none}
+      embedding: none
+      image: none
+      audio:
+        transcription: none
+        speech: none
+      moderation: none
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: 0.1
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+alphascope:
+  access:
+    mode: ${ACCESS_MODE:LOCAL}
+    origins: ${PUBLIC_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+    secure-cookie: ${SESSION_COOKIE_SECURE:true}
+    registration-enabled: ${REGISTRATION_ENABLED:false}
+    invitation: ${REGISTRATION_INVITATION:}
+    bootstrap-username: ${ADMIN_USERNAME:}
+    bootstrap-password: ${ADMIN_PASSWORD:}
+  provider: ${MARKET_PROVIDER:demo}
+  research:
+    position-risk-enabled: ${POSITION_RISK_ENABLED:false}
+    financial-sync-enabled: ${FINANCIAL_SYNC_ENABLED:true}
+  market:
+    channels: ${MARKET_CHANNELS:exchange-calendar,baostock,sina,eastmoney,tushare}
+    cooldown-seconds: ${MARKET_COOLDOWN_SECONDS:30}
+    cache-minutes: ${MARKET_CACHE_MINUTES:1440}
+    baostock-daily-budget: ${BAOSTOCK_DAILY_BUDGET:40000}
+  jobs:
+    stage-timeout: ${JOB_STAGE_TIMEOUT:PT2H}
+  backtest:
+    minimum-samples: ${BACKTEST_MINIMUM_SAMPLES:20}
+  operations:
+    backup-enabled: ${BACKUP_ENABLED:false}
+    backup-cron: ${BACKUP_CRON:0 0 2 * * *}
+    backup-secondary-directory: ${BACKUP_SECONDARY_DIRECTORY:}
+    backup-retention-days: ${BACKUP_RETENTION_DAYS:14}
+  scheduler:
+    enabled: ${SCHEDULER_ENABLED:false}
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    default-statement-timeout: 30

@@ -1,0 +1,37 @@
+{
+  "name": "alphascope-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vue-tsc --noEmit && vite build",
+    "format": "prettier --write src e2e vite.config.ts vitest.config.ts package.json tsconfig.json",
+    "format:check": "prettier --check src e2e vite.config.ts vitest.config.ts package.json tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "echarts": "6.1.0",
+    "element-plus": "2.14.7",
+    "vue": "3.5.44",
+    "vue-router": "4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.1",
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "26.0.0",
+    "prettier": "3.4.2",
+    "typescript": "5.9.3",
+    "vite": "6.4.5",
+    "vitest": "4.1.12",
+    "vue-tsc": "3.3.14"
+  },
+  "overrides": {
+    "glob": "14.0.2",
+    "minimatch": "11.0.1"
+  },
+  "engines": {
+    "node": "^22.0.0 || >=24.0.0"
+  }
+}

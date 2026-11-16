@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.industry.mapper.MembershipMapper">
+  <insert id="add" parameterType="com.alphascope.industry.dto.MembershipWriteCommand">
+    <![CDATA[
+    INSERT INTO instrument_theme(instrument_id, theme_id, effective_from, effective_to)
+    SELECT #{instrumentId}, id, #{effectiveFrom}, #{effectiveTo}
+    FROM theme
+    WHERE code=#{themeCode}
+    ]]>
+  </insert>
+</mapper>

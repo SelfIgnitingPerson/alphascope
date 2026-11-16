@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.industry.mapper.IndustryMapper">
+  <!-- Java 布尔属性不使用 is 前缀；数据库列及冻结 JSON 保留 is_synthetic。 -->
+  <resultMap id="themeScoreResult" type="com.alphascope.industry.entity.ThemeScore" autoMapping="true">
+    <result column="is_synthetic" property="synthetic"/>
+  </resultMap>
+
+  <!-- 统一选择业务截止时点前可见且已生效的最近披露样本。 -->
+  <sql id="selectedCohort">
+    <![CDATA[
+    (
+      SELECT c.id
+      FROM theme_research_cohort c
+      JOIN theme t ON t.id=c.theme_id
+      JOIN source_document d ON d.id=c.source_document_id
+      WHERE t.code=#{code}
+        AND c.available_at<=TIMESTAMP(#{date},'16:10:00')
+        AND d.published_at<=TIMESTAMP(#{date},'16:10:00')
+        AND c.effective_from<=#{date}
+        AND (c.effective_to IS NULL OR c.effective_to>=#{date})
+      ORDER BY c.available_at DESC,c.id DESC
+      LIMIT 1
+    )
+    ]]>
+  </sql>
+
+  <select id="themes" resultType="com.alphascope.industry.entity.Theme">
+    <![CDATA[
+    SELECT id,code,name,description FROM theme ORDER BY id
+    ]]>
+  </select>
+
+  <select id="members" resultType="com.alphascope.industry.dto.ThemeMemberDO">
+    <![CDATA[
+    SELECT i.symbol, i.name, c.id cohort_id, c.scope, c.source_document_id, d.url source_url
+    FROM theme_research_member m
+    JOIN theme_research_cohort c ON c.id=m.cohort_id
+    JOIN source_document d ON d.id=c.source_document_id
+    JOIN instrument i ON i.id=m.instrument_id
+    WHERE c.id=
+    ]]><include refid="selectedCohort"/><![CDATA[
+    UNION ALL
+    SELECT DISTINCT i.symbol, i.name, 0 cohort_id, 'LEGACY_REGISTERED_SAMPLE' scope,
+      0 source_document_id, NULL source_url
+    FROM instrument_theme it
+    JOIN instrument i ON i.id=it.instrument_id
+    JOIN theme t ON t.id=it.theme_id
+    WHERE t.code=#{code}
+      AND it.effective_from<=#{date}
+      AND (it.effective_to IS NULL OR it.effective_to>=#{date})
+      AND
+    ]]><include refid="selectedCohort"/><![CDATA[
+    IS NULL
+    ]]>
+  </select>
+
+  <select id="legacyMembers" resultType="com.alphascope.industry.dto.ThemeMemberDO">
+    <![CDATA[
+    SELECT DISTINCT i.symbol, i.name
+    FROM instrument_theme it
+    JOIN instrument i
+      ON i.id=it.instrument_id
+    JOIN theme t
+      ON t.id=it.theme_id
+    WHERE t.code=#{code}
+      AND it.effective_from<=#{date}
+      AND (it.effective_to IS NULL
+        OR it.effective_to>=#{date})
+    ]]>
+  </select>
+
+  <select id="membershipSince" resultType="java.time.LocalDate">
+    <![CDATA[
+    SELECT COALESCE(
+      (SELECT c.effective_from
+       FROM theme_research_cohort c
+       JOIN theme_research_member m ON m.cohort_id=c.id
+       JOIN instrument i ON i.id=m.instrument_id
+       WHERE c.id=
+    ]]><include refid="selectedCohort"/><![CDATA[
+    AND i.symbol=#{symbol}),
+      (SELECT MAX(it.effective_from)
+       FROM instrument_theme it
+       JOIN instrument i ON i.id=it.instrument_id
+       JOIN theme t ON t.id=it.theme_id
+       WHERE t.code=#{code}
+         AND i.symbol=#{symbol}
+         AND it.effective_from<=#{date}
+         AND (it.effective_to IS NULL OR it.effective_to>=#{date}))
+    )
+    ]]>
+  </select>
+
+  <select id="cohort" resultType="com.alphascope.industry.dto.CohortDetailDO">
+    <![CDATA[
+    SELECT c.id, c.theme_id, c.code, c.scope, c.title, c.source_document_id, c.available_at, c.effective_from, c.effective_to, c.expected_members, c.content_hash, c.definition_json, c.created_at, d.url source_url, d.title source_title,
+      d.published_at source_published_at, d.fetched_at source_fetched_at
+    FROM theme_research_cohort c
+    JOIN source_document d ON d.id=c.source_document_id
+    WHERE c.id=
+    (
+      SELECT c.id
+      FROM theme_research_cohort c
+      JOIN theme t ON t.id=c.theme_id
+      JOIN source_document d ON d.id=c.source_document_id
+      WHERE t.code=#{code}
+        AND c.available_at<=TIMESTAMP(#{date},'16:10:00')
+        AND d.published_at<=TIMESTAMP(#{date},'16:10:00')
+        AND c.effective_from<=#{date}
+        AND (c.effective_to IS NULL OR c.effective_to>=#{date})
+      ORDER BY c.available_at DESC,c.id DESC
+      LIMIT 1
+    )
+    ]]>
+  </select>
+
+  <select id="scores" resultMap="themeScoreResult" parameterType="com.alphascope.industry.dto.ThemeScoreQuery">
+    <![CDATA[
+    SELECT
+      s.id,
+      s.theme_id,
+      s.trade_date,
+      s.model_version,
+      s.score,
+      s.rs20,
+      s.breadth,
+      s.coverage,
+      s.created_at,
+      s.updated_at,
+      s.evidence_json,
+      s.day_return,
+      s.is_synthetic
+    FROM theme_score s
+    JOIN theme t
+      ON t.id=s.theme_id
+    WHERE t.code=#{themeCode}
+      AND s.is_synthetic=#{synthetic}
+      AND s.trade_date BETWEEN #{startDate} AND #{endDate}
+    ORDER BY s.trade_date
+    ]]>
+  </select>
+
+  <insert id="save">
+    <![CDATA[
+    INSERT INTO theme_score(theme_id, trade_date, model_version, score, rs20, breadth, coverage,
+      evidence_json, day_return, is_synthetic)
+    VALUES(#{themeId}, #{tradeDate}, 'EQUAL_RETURN_V1', #{score}, #{rs20}, #{breadth}, #{coverage}, #{evidenceJson},
+      #{dayReturn}, #{synthetic})
+    ON DUPLICATE KEY UPDATE
+      score= VALUES(score),
+      rs20= VALUES(rs20),
+      breadth= VALUES(breadth),
+      coverage= VALUES(coverage),
+      evidence_json= VALUES(evidence_json),
+      day_return= VALUES(day_return)
+    ]]>
+  </insert>
+</mapper>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.operations.mapper.AlertMapper">
+ <insert id="observe">INSERT INTO service_alert(issue_key,message,first_seen_at,last_seen_at) VALUES(#{issueKey},#{message},#{now},#{now}) ON DUPLICATE KEY UPDATE message=VALUES(message),first_seen_at=CASE WHEN resolved_at IS NULL THEN first_seen_at ELSE VALUES(first_seen_at) END,last_seen_at=VALUES(last_seen_at),resolved_at=NULL</insert>
+ <update id="resolveBefore">UPDATE service_alert SET resolved_at=#{observedAt} WHERE resolved_at IS NULL AND last_seen_at&lt;#{observedAt}</update>
+ <select id="active" resultType="com.alphascope.operations.entity.ServiceAlert">SELECT id,issue_key,message,first_seen_at,last_seen_at,resolved_at FROM service_alert WHERE resolved_at IS NULL ORDER BY first_seen_at</select>
+</mapper>

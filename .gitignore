@@ -1,0 +1,22 @@
+# 本机密钥与编辑器状态
+.env
+.idea/
+.DS_Store
+
+# 依赖及编译输出
+**/target/
+**/node_modules/
+**/dist/
+
+# 运行日志、数据库备份、运行副本及交付包
+.runtime/
+artifacts/
+/deploy/.env
+
+# CI本地依赖缓存及任何本机凭据文件
+/.m2/
+/.npm/
+.env.*
+!.env.example
+*.pem
+*.key

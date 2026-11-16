@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.common.mapper.ResearchCollectionMapper">
+  <select id="collection" resultType="com.alphascope.common.entity.ResearchCollection">
+    <![CDATA[
+    SELECT id, data_kind, scope, business_date, status, evidence_json, updated_at
+    FROM research_collection
+    WHERE data_kind=#{kind}
+      AND scope=#{scope}
+      AND business_date=#{date}
+    ]]>
+  </select>
+
+  <insert id="collectionSave" parameterType="com.alphascope.common.entity.ResearchCollection">
+    <![CDATA[
+    INSERT INTO research_collection(data_kind, scope, business_date, status, evidence_json)
+    VALUES(#{dataKind}, #{scope}, #{businessDate}, #{status}, #{evidenceJson})
+    ON DUPLICATE KEY UPDATE
+      status= VALUES(status),
+      evidence_json= VALUES(evidence_json),
+      updated_at=CURRENT_TIMESTAMP(6)
+    ]]>
+  </insert>
+</mapper>

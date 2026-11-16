@@ -1,0 +1,110 @@
+{
+  "schema": "EXCHANGE_CALENDAR_V1",
+  "reviewedOn": "2026-11-10",
+  "market": "SSE",
+  "basis": "交易所正常周一至周五交易、周末休市规则与各年官方休市通知；不采用国务院调休工作日作为开市日。",
+  "schedule": [
+    {
+      "year": 2024,
+      "publishedOn": "2023-12-26",
+      "sourceUrl": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20231226_5733939.shtml",
+      "closedRanges": [
+        {
+          "from": "2024-01-01",
+          "through": "2024-01-01"
+        },
+        {
+          "from": "2024-02-09",
+          "through": "2024-02-17"
+        },
+        {
+          "from": "2024-04-04",
+          "through": "2024-04-06"
+        },
+        {
+          "from": "2024-05-01",
+          "through": "2024-05-05"
+        },
+        {
+          "from": "2024-06-10",
+          "through": "2024-06-10"
+        },
+        {
+          "from": "2024-09-15",
+          "through": "2024-09-17"
+        },
+        {
+          "from": "2024-10-01",
+          "through": "2024-10-07"
+        }
+      ]
+    },
+    {
+      "year": 2025,
+      "publishedOn": "2024-12-23",
+      "sourceUrl": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20241223_10767108.shtml",
+      "closedRanges": [
+        {
+          "from": "2025-01-01",
+          "through": "2025-01-01"
+        },
+        {
+          "from": "2025-01-28",
+          "through": "2025-02-04"
+        },
+        {
+          "from": "2025-04-04",
+          "through": "2025-04-06"
+        },
+        {
+          "from": "2025-05-01",
+          "through": "2025-05-05"
+        },
+        {
+          "from": "2025-05-31",
+          "through": "2025-06-02"
+        },
+        {
+          "from": "2025-10-01",
+          "through": "2025-10-08"
+        }
+      ]
+    },
+    {
+      "year": 2026,
+      "publishedOn": "2025-12-22",
+      "sourceUrl": "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml",
+      "closedRanges": [
+        {
+          "from": "2026-01-01",
+          "through": "2026-01-03"
+        },
+        {
+          "from": "2026-02-15",
+          "through": "2026-02-23"
+        },
+        {
+          "from": "2026-04-04",
+          "through": "2026-04-06"
+        },
+        {
+          "from": "2026-05-01",
+          "through": "2026-05-05"
+        },
+        {
+          "from": "2026-06-19",
+          "through": "2026-06-21"
+        },
+        {
+          "from": "2026-09-25",
+          "through": "2026-09-27"
+        },
+        {
+          "from": "2026-10-01",
+          "through": "2026-10-07"
+        }
+      ]
+    }
+  ],
+  "exceptionalClosures": []
+}
