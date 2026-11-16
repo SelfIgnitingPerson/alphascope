@@ -210,10 +210,9 @@ PUBLIC全部业务接口需要会话，auth/status、login和register为入口�
 | POST | /watchlist/discover         | symbol、initialize、date；重新核验候选，添加自选并可选排队初始化        |
 | GET  | /workspace/status           | 自己的数据时效、任务与容量提示                                          |
 | GET  | /admin/product/status       | 管理员许可、账号和运行配置摘要                                          |
+| POST | /admin/product/licenses     | 来源、permissions、凭证、有效日期；仅登记操作方声明，不自动授予合同权限 |
 
 `GET /api/v1/admin/product/status`的`sourceLicenseEnforced`返回当前实际许可检查开关：PUBLIC始终为true，LOCAL按显式配置决定。页面据此提示是否需要处理登记，不从运行模式猜测。`licenses[].status`是登记状态，不代表上游连接或数据可用性；接口不自动创建许可记录。
-
-| POST | /admin/product/licenses     | 来源、permissions、凭证、有效日期；仅登记操作方声明，不自动授予合同权限 |
 
 /admin/jobs、/admin/backtest-experiments和/admin/backtest-validation-tasks保留既有URL，但普通用户只能操作自己的记录；其他管理入口需要ADMIN。他人的报告、任务、验证和实验返回404。PUBLIC缺DISPLAY或EXPORT权限时对应研究展示/下载返回授权错误，后台收集与报告另检查COLLECT/DERIVED_REPORT。
 
