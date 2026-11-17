@@ -6,6 +6,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.identity.dto.UserAdminInput;
 import com.alphascope.identity.service.UserAdminService;
 import com.alphascope.identity.vo.UserAdminView;
+import com.alphascope.operations.policy.OperationalData;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 public class UserAdminController {
   private final UserAdminService service;

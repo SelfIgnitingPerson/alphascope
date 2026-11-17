@@ -48,16 +48,21 @@ class ProductPolicyTest {
             mapper, options, access, new AlphaScopeProperties(), new MockEnvironment(), clock);
     assertFalse(service.isEnforced());
     assertDoesNotThrow(() -> service.require("SINA", "DISPLAY"));
-    assertDoesNotThrow(service::requireDisplay);
+    assertDoesNotThrow(
+        () -> service.requireEvidence(java.util.Map.of("source", "SINA", "close", 1), "DISPLAY"));
     options.setEnforceSourceLicense(true);
     assertTrue(service.isEnforced());
     assertThrows(BusinessException.class, () -> service.require("SINA", "DISPLAY"));
-    assertThrows(BusinessException.class, service::requireDisplay);
+    assertThrows(
+        BusinessException.class,
+        () -> service.requireEvidence(java.util.Map.of("source", "SINA", "close", 1), "DISPLAY"));
     options.setEnforceSourceLicense(false);
     access.setMode(AccessProperties.Mode.PUBLIC);
     assertTrue(service.isEnforced());
     assertThrows(BusinessException.class, () -> service.require("SINA", "DISPLAY"));
-    assertThrows(BusinessException.class, service::requireDisplay);
+    assertThrows(
+        BusinessException.class,
+        () -> service.requireEvidence(java.util.Map.of("source", "SINA", "close", 1), "DISPLAY"));
   }
 
   @Test
@@ -140,13 +145,13 @@ class ProductPolicyTest {
     options.setMaximumPlatformJobs(3);
     var service = new CapacityServiceImpl(mapper, options);
     service.setPlatform(platform);
-    when(mapper.capacity()).thenReturn(new ResearchCapacity(0, 0, 0, null));
+    when(mapper.capacity(anyLong())).thenReturn(new ResearchCapacity(0, 0, 0, null));
     when(platform.usage()).thenReturn(new PlatformUsage(3, 0, 0));
     assertThrows(BusinessException.class, service::requireJobSlot);
     when(platform.usage()).thenReturn(new PlatformUsage(0, 0, 0));
-    when(mapper.capacity()).thenReturn(new ResearchCapacity(2, 0, 0, null));
+    when(mapper.capacity(anyLong())).thenReturn(new ResearchCapacity(2, 0, 0, null));
     assertThrows(BusinessException.class, service::requireJobSlot);
-    when(mapper.capacity()).thenReturn(new ResearchCapacity(0, 0, 1073741824L, null));
+    when(mapper.capacity(anyLong())).thenReturn(new ResearchCapacity(0, 0, 1073741824L, null));
     assertThrows(BusinessException.class, () -> service.requireEvidenceSpace(33554432));
   }
 

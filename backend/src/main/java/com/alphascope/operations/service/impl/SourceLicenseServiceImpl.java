@@ -9,7 +9,9 @@ import com.alphascope.identity.context.TenantContext;
 import com.alphascope.operations.config.ProductProperties;
 import com.alphascope.operations.dto.SourceLicenseInput;
 import com.alphascope.operations.entity.SourceLicense;
+import com.alphascope.operations.mapper.SourceEvidenceMapper;
 import com.alphascope.operations.mapper.SourceLicenseMapper;
+import com.alphascope.operations.policy.SourceEvidence;
 import com.alphascope.operations.service.SourceLicenseService;
 import com.alphascope.operations.vo.SourceLicenseView;
 import java.net.URI;
@@ -148,24 +150,29 @@ public class SourceLicenseServiceImpl implements SourceLicenseService {
           "数据源使用范围尚未就绪：" + source + " / " + permission + "，请联系管理员核对授权登记");
   }
 
-  /** {@inheritDoc} */
-  @Override
-  public void requireDisplay() {
-    requireAll("DISPLAY");
+  private SourceEvidenceMapper evidenceMapper;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public void setEvidenceMapper(SourceEvidenceMapper mapper) {
+    this.evidenceMapper = mapper;
   }
 
   /** {@inheritDoc} */
   @Override
-  public void requireAll(String permission) {
-    if (!isEnforced()) return;
+  public void requireEvidence(Object evidence, String permission) {
+    if (!isEnforced() || evidence == null) return;
     if (!PERMISSIONS.contains(permission)) throw invalid();
-    for (var value : status())
-      if (!value.status().equals("DECLARED_BY_OPERATOR")
-          || !value.permissions().contains(permission))
-        throw new BusinessException(
-            ResultCode.DATA_UNAVAILABLE,
-            503,
-            "数据源使用范围尚未就绪：" + value.source() + " / " + permission + "，请联系管理员核对授权登记");
+    var references = SourceEvidence.inspect(evidence);
+    var sources = new java.util.TreeSet<>(references.sources());
+    if (!references.batches().isEmpty()) {
+      if (evidenceMapper == null || references.batches().size() > 2000)
+        throw new BusinessException(ResultCode.DATA_UNAVAILABLE, 503, "来源批次尚未核验，不能发布研究结果");
+      sources.addAll(evidenceMapper.batchSources(references.batches()));
+    }
+    if (sources.isEmpty() && references.material())
+      throw new BusinessException(
+          ResultCode.DATA_UNAVAILABLE, 503, "这份旧研究缺少可核验来源，请在获准使用的数据范围内重新生成；不会猜测来源或改写旧证据");
+    for (var source : sources) require(SourceEvidence.canonical(source), permission);
   }
 
   private BusinessException invalid() {

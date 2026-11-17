@@ -1,5 +1,7 @@
 package com.alphascope.scheduler.vo;
 
+import com.alphascope.common.diagnostic.FailureDiagnosis;
+import com.alphascope.common.diagnostic.FailureDiagnostics;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.scheduler.dto.StageDetails;
 import com.alphascope.scheduler.entity.JobExecution;
@@ -58,13 +60,14 @@ public record JobView(
     /** 独立数据质量；旧任务没有记录时为空，不自动解释为完整。 */
     String dataStatus) {
   /** 解释本次已保存的错误代码；旧任务不补造当时没有记录的具体网络原因。 */
-  @com.fasterxml.jackson.annotation.JsonProperty("diagnostic")
-  public com.alphascope.common.diagnostic.FailureDiagnosis diagnostic() {
-    if ("FAILED".equals(status))
-      return com.alphascope.common.diagnostic.FailureDiagnostics.recorded(error);
+  @com.fasterxml.jackson.annotation.JsonProperty(
+      value = "diagnostic",
+      access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+  public FailureDiagnosis diagnostic() {
+    if ("FAILED".equals(status)) return FailureDiagnostics.recorded(error);
     if (status != null
         && java.util.Set.of("CANCELLED", "TIMED_OUT", "INTERRUPTED").contains(status))
-      return com.alphascope.common.diagnostic.FailureDiagnostics.code(status);
+      return FailureDiagnostics.code(status);
     return null;
   }
 

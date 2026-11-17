@@ -32,7 +32,6 @@
 | ------------------------------------------------------------------------------------ | ---------------------------------------------- |
 | [tools.sh](tools.sh)                                                                 | 校验工具参数，调用 Java `ProjectTools`         |
 | [lib/environment.sh](lib/environment.sh)                                             | 加载 `.env`、定位根目录、检测 JDK              |
-| [internal/restart-backend.sh](internal/restart-backend.sh)                           | 先检查 JDK/JAR，再重启已核实 PID，分离运行副本 |
 | [ThemeResearchTool.java](../backend/src/main/java/com/alphascope/tools/ThemeResearchTool.java) | LOCAL真实模式主题维护、日期与活动任务检查     |
 | [ProjectTools.java](../backend/src/main/java/com/alphascope/tools/ProjectTools.java) | 命令分发、诊断与来源核验                       |
 
@@ -40,7 +39,7 @@
 
 `bash scripts/tools.sh warm-market-history YYYY-MM-DD`：维护用单会话历史缓存回补，会写业务库。只在无活动研究任务且上游未拒绝访问时执行；不会启动额外队列或Web服务。访问受限时先停止，不能靠反复执行恢复上游权限。
 
-`bash scripts/tools.sh upgrade-schema-direct`仅用于用户明确选择本次不创建备份的开发库同步；核对BASELINE/1、无活动任务及原字段指纹后执行受控DDL。是否启用自动备份由当前环境配置决定，实际运行状态见验收记录。
+`bash scripts/tools.sh upgrade-schema-direct`用于显式选择不创建备份的开发库同步；核对BASELINE/1、无活动任务及原字段指纹后执行受控DDL。是否启用自动备份由当前环境配置决定。
 
 研究验证CLI与页面使用同一持久后台队列，支持all/technical/market范围，完整链路协议RESEARCH_AUDIT_V2；窗口、容量、取消和证据下载见[历史验证](../docs/runbook/historical-validation.md)。
 
@@ -50,7 +49,7 @@
 
 - `bash scripts/quality/security-audit.sh`：生成SBOM，执行npm及OSV依赖审计；需要网络和Docker，失败返回非零，不写业务库。
 - `node scripts/quality/release-manifest.mjs`：对现有生产JAR、SQL、锁文件和Dockerfile取SHA256，可从SBOM生成许可证清单；不读取.env，不部署或推送。
-- `.gitlab-ci.yml`：受信任alphascope Runner执行完整测试、审计和打包；当前未有远程执行证据。
+- `.gitlab-ci.yml`：受信任alphascope Runner执行完整测试、审计和打包；
 
 维护CLI默认连接个人本机服务，不携带PUBLIC会话；PUBLIC操作请通过登录后的产品界面和有会话/CSRF的API完成。
 

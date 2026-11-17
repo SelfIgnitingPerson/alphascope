@@ -6,9 +6,11 @@ import com.alphascope.common.diagnostic.baostock.BaoStockErrors;
 import com.alphascope.common.task.ExecutionContext;
 import com.alphascope.market.dto.DailyBarDto;
 import com.alphascope.market.dto.MarketWindow;
+import com.alphascope.market.dto.ProviderProbeRequest;
 import com.alphascope.market.provider.baostock.BaoStockAccessGuard;
 import com.alphascope.market.vo.CapabilityView;
 import com.alphascope.market.vo.ProviderChannelView;
+import com.alphascope.market.vo.ProviderProbeSample;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -163,8 +165,7 @@ public class MultiChannelMarketDataProvider implements MarketDataProvider {
 
   /** {@inheritDoc} */
   @Override
-  public com.alphascope.market.vo.ProviderProbeSample probe(
-      com.alphascope.market.dto.ProviderProbeRequest request) {
+  public ProviderProbeSample probe(ProviderProbeRequest request) {
     var selected =
         channels.stream()
             .filter(channel -> channel.code().equals(request.getChannel()))

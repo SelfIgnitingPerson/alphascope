@@ -18,6 +18,9 @@ import lombok.NoArgsConstructor;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class JobExecution {
+  /** 活动任务的保守证据预留，终态由数据库原子释放。 */
+  private long reservationBytes;
+
   /** 记录主键，自增生成 */
   private Long id;
 

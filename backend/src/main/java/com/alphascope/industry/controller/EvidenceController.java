@@ -6,6 +6,7 @@ import com.alphascope.industry.dto.MetricInput;
 import com.alphascope.industry.dto.SourceInput;
 import com.alphascope.industry.service.EvidenceService;
 import com.alphascope.industry.vo.IndustryMetricView;
+import com.alphascope.operations.policy.OperationalData;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.util.List;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1")
 public class EvidenceController {

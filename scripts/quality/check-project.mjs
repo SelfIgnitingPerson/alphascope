@@ -31,6 +31,7 @@ async function scan(directory) {
   }
 }
 
+await import("./schema-docs.mjs");
 await scan(root);
 const sql = files.filter((file) => file.endsWith(".sql"));
 const baseline = path.join(

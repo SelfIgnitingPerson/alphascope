@@ -7,18 +7,37 @@ import SectionCard from '../components/common/SectionCard.vue';
 import StateBadge from '../components/common/StateBadge.vue';
 import { useResource } from '../composables/useResource';
 import { useMutation } from '../composables/useMutation';
-import type { PageProps, JobDetail, ReportType } from '../types/models';
+import type { PageProps, JobDetail, ReportType, PageResponse } from '../types/models';
 import { ref, computed, watch, onScopeDispose } from 'vue';
-import { getJobs, getJob, runJob, retryJob, cancelJob } from '../api/jobs';
+import { getJobs, getJob, runJob, retryJob, cancelJob, getJobAttempts } from '../api/jobs';
 import { getProviders } from '../api/market';
 import { stageNames, timestamp } from '../utils/format';
 const props = defineProps<PageProps>();
+const jobLabels: Record<string, string> = {
+  DAILY: '收盘日报',
+  WEEKLY: '每周周报',
+  MARKET_HISTORY: '市场历史补齐',
+  MARKET_UNIVERSE: '北交所目录补齐',
+  MARKET_FULL: '三所全A证据核验',
+};
+const taskType = ref('');
+const taskTypes = [
+  { id: '', label: '全部任务' },
+  ...Object.entries(jobLabels).map(([id, label]) => ({ id, label })),
+];
+watch(taskType, () => {
+  page.value = 1;
+});
 const page = ref(1),
   size = ref(20),
   force = ref(false);
 const { data, loading, error, reload } = useResource(
-  (signal) => getJobs({ page: page.value, size: size.value }, signal),
-  [page, () => props.refreshToken],
+  (signal) =>
+    getJobs({ page: page.value, size: size.value, type: taskType.value || undefined }, signal),
+  {
+    watch: [page, taskType, () => props.refreshToken],
+    identity: () => taskType.value + ':' + page.value,
+  },
 );
 const { data: providerStatus } = useResource(getProviders, [() => props.refreshToken]);
 const currentScope = computed(() => providerStatus.value?.dataScope);
@@ -28,6 +47,21 @@ const { busy, error: mutationError, run } = useMutation();
 const selected = ref<JobDetail>(),
   drawer = ref(false),
   notice = ref('');
+const attempts = ref<PageResponse<JobDetail>>();
+watch(
+  () => selected.value?.id,
+  () => {
+    attempts.value = undefined;
+  },
+);
+async function loadAttempts(page = 1) {
+  const id = selected.value?.id;
+  if (!id) return;
+  await run(async () => {
+    const result = await getJobAttempts(id, page);
+    if (selected.value?.id === id) attempts.value = result;
+  });
+}
 const active = (status: string) =>
   ['PENDING', 'RUNNING', 'CANCEL_REQUESTED', 'TIMEOUT_REQUESTED'].includes(status);
 /** 数据质量的专用文案，避免与执行成功、市场UNKNOWN混淆。 */
@@ -61,9 +95,15 @@ async function refresh() {
       selected.value = result;
       if (result.status === 'SUCCESS') {
         notice.value =
-          result.data_status === 'PARTIAL' || result.data_status === 'UNAVAILABLE'
-            ? '任务执行完成，报告已归档；研究数据仍有缺项，请查看数据质量。'
-            : '任务已完成，报告已归档。';
+          result.job_name === 'MARKET_FULL'
+            ? '三所核验已执行，请查看覆盖缺项；本任务不生成报告。'
+            : result.job_name === 'MARKET_UNIVERSE'
+              ? '北交所在市目录已归档；请核对成员和来源，行情与历史窗口另行验收。'
+              : result.job_name === 'MARKET_HISTORY'
+                ? '历史补齐已执行，请核对市场覆盖率；本任务不生成报告。'
+                : result.data_status === 'PARTIAL' || result.data_status === 'UNAVAILABLE'
+                  ? '任务执行完成，报告已归档；研究数据仍有缺项，请查看数据质量。'
+                  : '任务已完成，报告已归档。';
       } else if (['FAILED', 'INTERRUPTED', 'CANCELLED', 'TIMED_OUT'].includes(result.status)) {
         notice.value = '任务未完成，请查看执行阶段后重试。';
       }
@@ -105,6 +145,8 @@ async function submit(type: ReportType) {
 async function retry(id: number) {
   await run(async () => {
     selected.value = await retryJob(id);
+    attempts.value = undefined;
+    notice.value = '已在原任务编号下重试，旧错误和阶段保存在执行历史；成功后主列表显示最新状态。';
     drawer.value = true;
     await reload();
     schedule();
@@ -185,9 +227,22 @@ onScopeDispose(() => {
     </SectionCard>
     <SectionCard
       title="执行记录"
-      description="演示、真实数据与不同通道配置分别记录，历史失败保留以便追踪。"
+      description="按任务类型查看。失败重试沿用原编号；历次原因和阶段收进执行历史。明确生成报告新修订时才建立新任务。"
     >
       <template #actions><el-button @click="refresh">刷新记录</el-button></template>
+      <el-radio-group
+        v-model="taskType"
+        aria-label="按任务类型筛选"
+        class="job-type-filter"
+      >
+        <el-radio-button
+          v-for="item in taskTypes"
+          :key="item.id"
+          :value="item.id"
+        >
+          {{ item.label }}
+        </el-radio-button>
+      </el-radio-group>
       <AsyncState
         :loading="loading"
         :error="error"
@@ -204,18 +259,21 @@ onScopeDispose(() => {
           />
           <el-table-column label="任务">
             <template #default="s">
-              {{ s.row.job_name === 'DAILY' ? '收盘日报' : '每周周报' }}
+              {{ jobLabels[s.row.job_name] || '其他任务' }}
             </template>
           </el-table-column>
           <el-table-column
-            label="数据范围"
-            min-width="170"
+            label="运行模式"
+            min-width="125"
           >
             <template #default="s">
-              <span class="scope-label">
+              <span
+                class="scope-label"
+                :title="s.row.data_scope"
+              >
                 {{
                   s.row.data_scope?.startsWith('REAL:')
-                    ? '真实 · ' + s.row.data_scope.slice(5)
+                    ? '真实行情'
                     : s.row.data_scope === 'DEMO'
                       ? '演示模式'
                       : '早期记录'
@@ -249,8 +307,29 @@ onScopeDispose(() => {
             </template>
           </el-table-column>
           <el-table-column
+            label="最近结果"
+            min-width="230"
+          >
+            <template #default="s">
+              <span
+                class="job-latest-result"
+                :title="s.row.error || ''"
+              >
+                {{
+                  s.row.error
+                    ? readableJobError(s.row.error).summary
+                    : active(s.row.status)
+                      ? '等待或执行中，尚未形成最终结果'
+                      : s.row.status === 'SUCCESS'
+                        ? '执行完成；研究范围见数据质量'
+                        : '本次未记录失败原因，请查看阶段'
+                }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column
             prop="attempt"
-            label="次数"
+            label="执行序号"
             width="70"
           />
           <el-table-column
@@ -315,7 +394,8 @@ onScopeDispose(() => {
         </div>
         <div class="drawer-summary">
           <strong>
-            {{ selected.business_date }} · {{ selected.job_name === 'DAILY' ? '日报' : '周报' }}
+            {{ selected.business_date }} ·
+            {{ jobLabels[selected.job_name] || '其他任务' }}
           </strong>
           <StateBadge :value="selected.status" />
           <StateBadge
@@ -326,10 +406,79 @@ onScopeDispose(() => {
           />
         </div>
         <p class="help-text">
-          任务 #{{ selected.id }} · 第 {{ selected.attempt }} 次尝试 · 最近心跳
+          任务 #{{ selected.id }} · 本次执行序号 {{ selected.attempt }} · 最近心跳
           {{ timestamp(selected.heartbeat_at) }}
           <span v-if="selected.retry_of">· 重试自 #{{ selected.retry_of }}</span>
         </p>
+        <el-button
+          :disabled="busy"
+          @click="loadAttempts()"
+        >
+          查看历次执行
+        </el-button>
+        <section
+          v-if="attempts"
+          class="attempt-history"
+          aria-label="历次执行"
+        >
+          <p class="help-text">
+            当前任务 #{{ selected.id }} · 已归档
+            {{ attempts.total }} 次执行；下面是历史结果，不代表本次状态。
+          </p>
+          <details
+            v-for="past in attempts.items"
+            :key="past.id + ':' + past.attempt"
+            class="attempt-history__item"
+          >
+            <summary>
+              执行序号 {{ past.attempt }} · {{ timestamp(past.ended_at) }} ·
+              {{
+                past.status === 'SUCCESS'
+                  ? '已完成'
+                  : past.status === 'FAILED'
+                    ? '失败'
+                    : past.status === 'INTERRUPTED'
+                      ? '已中断'
+                      : past.status === 'CANCELLED'
+                        ? '已取消'
+                        : past.status === 'TIMED_OUT'
+                          ? '已超时'
+                          : past.status
+              }}
+            </summary>
+            <p>{{ readableJobError(past.error).summary || '本次执行没有记录错误原因。' }}</p>
+            <p class="help-text">当次来源配置：{{ past.data_scope }}</p>
+            <ul>
+              <li
+                v-for="stage in past.stages"
+                :key="stage.stage_name"
+              >
+                {{ stageNames[stage.stage_name] || stage.stage_name }} · {{ stage.status }}
+                <p v-if="stage.error">{{ readableJobError(stage.error).summary }}</p>
+              </li>
+            </ul>
+          </details>
+          <p
+            v-if="!attempts.total"
+            class="help-text"
+          >
+            尚无历史执行；本次重试前才会归档原状态。
+          </p>
+          <div class="button-row">
+            <el-button
+              :disabled="busy || attempts.page <= 1"
+              @click="loadAttempts(attempts.page - 1)"
+            >
+              上一页
+            </el-button>
+            <el-button
+              :disabled="busy || attempts.page * attempts.size >= attempts.total"
+              @click="loadAttempts(attempts.page + 1)"
+            >
+              下一页
+            </el-button>
+          </div>
+        </section>
         <p class="help-text">
           执行时间：{{ timestamp(selected.started_at) }} → {{ timestamp(selected.ended_at) }}
         </p>
@@ -430,3 +579,35 @@ onScopeDispose(() => {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+.job-latest-result {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.job-type-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.attempt-history {
+  background: var(--surface-soft, #f6f8fb);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.attempt-history__item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color, #e5eaf0);
+  overflow-wrap: anywhere;
+}
+.attempt-history__item summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+</style>

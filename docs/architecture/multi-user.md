@@ -14,9 +14,9 @@ PUBLIC登录使用数据库会话，令牌仅通过HttpOnly、Secure、SameSite=
 
 | 分类 | 表或范围 | 处理方式 |
 | --- | --- | --- |
-| 私有，17张 | watchlist、portfolio_account、portfolio_position、indicator_snapshot、signal_event、signal_revision、theme_score、market_score、analysis_report、report_input_snapshot、report_source、notification_log、job_execution、job_stage、validation_experiment、research_validation_task、service_alert | tenant_id参与查询、插入及自然唯一键；账户主键按空间与账户号组合 |
-| 共享，20张 | instrument、adjustment_factor、daily_bar、daily_bar_audit、instrument_day_status、market_data_revision、market_factor_snapshot、trading_calendar、market_breadth_snapshot、market_observation_snapshot、earnings_forecast_snapshot、financial_report、valuation_snapshot、research_collection、theme、theme_research_cohort、theme_research_member、source_document、industry_metric、instrument_theme | 保存实际来源、日期和修订；共享人工写入仅管理员 |
-| 控制，4张 | app_user、auth_session、auth_event、source_license | 仅通过身份、账号支持和许可服务访问，不能作为通用数据列表开放 |
+| 私有，20张 | watchlist、research_plan、research_plan_review、portfolio_account、portfolio_position、indicator_snapshot、signal_event、signal_revision、theme_score、market_score、analysis_report、report_input_snapshot、report_source、notification_log、job_execution、job_stage、job_attempt_history、validation_experiment、research_validation_task、service_alert | tenant_id参与查询、插入及自然唯一键；账户主键按空间与账户号组合 |
+| 共享，21张 | instrument、theme_leader_revision、adjustment_factor、daily_bar、daily_bar_audit、instrument_day_status、market_data_revision、market_factor_snapshot、trading_calendar、market_breadth_snapshot、market_universe_snapshot、market_observation_snapshot、earnings_forecast_snapshot、financial_report、research_collection、theme、theme_research_cohort、theme_research_member、source_document、industry_metric、instrument_theme | 保存实际来源、日期和修订；共享人工写入仅管理员 |
+| 控制，5张 | app_user、auth_session、auth_event、source_license、storage_budget | 仅通过身份、账号支持和许可服务访问，不能作为通用数据列表开放 |
 
 MyBatis租户插件在SQL语法树层补充私有表过滤；未知表默认拒绝，PUBLIC未绑定身份的私人SQL拒绝执行。业务Mapper不能自行忽略隔离。唯一例外是PlatformCapacityMapper的显式平台数字汇总，只返回数量/字节数，不返回其他用户的内容；集成测试核验平台与个人计数差异。
 
@@ -30,12 +30,14 @@ JobWorker、ReportScheduler、验证队列、心跳和独立超时监控均恢�
 
 ## 授权与容量
 
+实际展示由控制器数据边界声明和统一响应策略执行，不再靠URL白名单；生成按捕获的实际输入来源核验，读取旧证据不以当前配置猜测来源。不可追溯的旧派生结果在PUBLIC拒绝发布，LOCAL可用于复核。
+
 来源许可按来源及COLLECT、DISPLAY、EXPORT、DERIVED_REPORT分别登记有效区间和凭证。PUBLIC强制准入；管理员登记只表示DECLARED_BY_OPERATOR，不代表系统已经核验合同或自动取得授权。缺少许可允许登录、配置和查看自己的任务元数据，实际收集、研究展示和导出仍拒绝。
 
-单用户及全平台分别限制活动任务和证据容量，自选与账号也有上限。新增前在短事务中核对，拒绝超额而不删除冻结历史。认证审计按保留期分批清理。可选运维Webhook只向显式允许的HTTPS主机发送通用状态，不携带自选、行情或许可凭据；未配置不发送。
+单用户及全平台分别限制活动任务和证据容量，自选与账号也有上限。新增前核对并预留，正文写入由数据库触发器原子计量；全平台包含共享证据和私人证据。超额、回滚及任务终态都同步结算，不删除冻结历史。认证审计按保留期分批清理。可选运维Webhook只向显式允许的HTTPS主机发送通用状态，不携带自选、行情或许可凭据；未配置不发送。
 
 ## 验收与发布
 
-隔离MySQL集成测试覆盖跨用户读写、同自然键、后台领取、角色、CSRF、授权有效期与配额；独立HTTPS浏览器流程覆盖注册、登录、自选初始化、双账号及退出。验收结果见[当前验收](../verification/README.md)。这不替代正式部署后的渗透和持续容量测试。
+隔离MySQL集成测试覆盖跨用户读写、同自然键、后台领取、角色、CSRF、授权有效期与配额；独立HTTPS浏览器流程覆盖注册、登录、自选初始化、双账号及退出。这不替代正式部署后的渗透和持续容量测试。
 
 生产同源JAR、网关与TLS配置见[部署入口](../../deploy/README.md)。首次实际发布后冻结V1，后续结构采用增量迁移；开发期直接同步不是生产升级方案。回滚只能使用兼容TENANT_V1的二进制。

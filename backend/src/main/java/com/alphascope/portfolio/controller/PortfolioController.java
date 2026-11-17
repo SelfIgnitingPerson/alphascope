@@ -1,6 +1,7 @@
 package com.alphascope.portfolio.controller;
 
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.OperationalData;
 import com.alphascope.portfolio.dto.AccountInput;
 import com.alphascope.portfolio.dto.PositionInput;
 import com.alphascope.portfolio.service.PortfolioService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/portfolio")
 public class PortfolioController {

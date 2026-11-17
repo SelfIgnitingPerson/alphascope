@@ -24,7 +24,9 @@ import com.alphascope.common.util.Jsons;
 import com.alphascope.identity.context.TenantContext;
 import com.alphascope.identity.vo.UserView;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.operations.policy.SourceEvidence;
 import com.alphascope.operations.service.CapacityService;
+import com.alphascope.operations.service.SourceLicenseService;
 import com.alphascope.portfolio.service.PortfolioService;
 import com.alphascope.signal.rule.RiskRules;
 import java.nio.charset.StandardCharsets;
@@ -141,6 +143,7 @@ public class ValidationTaskServiceImpl implements ValidationTaskService {
     if (mapper.activeCount() >= properties.getValidation().getMaximumActive())
       throw new BusinessException(ResultCode.INVALID_ARGUMENT, 400, "活动验证任务已达上限，请等待或取消后再提交");
     var row = new ResearchValidationTask();
+    row.setReservationBytes(properties.getValidation().getMaximumEvidenceBytes());
     row.setScope(frozen.getScope().name());
     row.setDataScope(scope);
     row.setActiveKey(key);
@@ -343,6 +346,27 @@ public class ValidationTaskServiceImpl implements ValidationTaskService {
     return row;
   }
 
+  @org.springframework.beans.factory.annotation.Autowired private SourceLicenseService licenses;
+
+  private final java.util.concurrent.ConcurrentHashMap<String, java.util.Set<String>> sourceCache =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private java.util.Set<String> frozenSources(ResearchValidationTask row) {
+    if (licenses == null || !licenses.isEnforced() || row.getSummaryJson() == null) return null;
+    String key = TenantContext.id() + ":" + row.getId() + ":" + row.getEvidenceSha256();
+    if (sourceCache.size() > 128 && !sourceCache.containsKey(key)) sourceCache.clear();
+    return sourceCache.computeIfAbsent(
+        key,
+        ignored -> {
+          String raw = mapper.evidence(row.getId());
+          if (raw == null || !Jsons.hash(raw).equals(row.getEvidenceSha256()))
+            throw new IllegalStateException("验证冻结证据指纹不符");
+          return SourceEvidence.inspect(
+                  Jsons.read(raw, com.fasterxml.jackson.databind.JsonNode.class))
+              .sources();
+        });
+  }
+
   private ValidationTaskView view(ResearchValidationTask row) {
     var command = Jsons.read(row.getRequestJson(), ValidationCommand.class);
     return ValidationTaskView.builder()
@@ -362,6 +386,7 @@ public class ValidationTaskServiceImpl implements ValidationTaskService {
         .heartbeatAt(row.getHeartbeatAt())
         .deadlineAt(row.getDeadlineAt())
         .evidenceSha256(row.getEvidenceSha256())
+        .inputSources(frozenSources(row))
         .summary(
             row.getSummaryJson() == null
                 ? null

@@ -180,18 +180,19 @@ public interface JobMapper {
   /**
    * 统计全部持久任务执行记录，包括历史失败和重试尝试。
    *
+   * @param query 任务类型和分页筛选
+   * @param query 已校验类型筛选及分页
    * @return 任务执行记录总数
    */
-  long count();
+  long count(com.alphascope.scheduler.dto.JobQuery query);
 
   /**
    * 按主键倒序分页读取任务执行记录。
    *
-   * @param size 本次分页返回条数，由调用方校验合法范围
-   * @param offset 从 0 开始的分页偏移，由调用方校验为非负数
+   * @param query 已校验任务类型和分页
    * @return 当前页任务记录；偏移超过总数时返回空列表
    */
-  List<JobExecution> page(@Param("size") int size, @Param("offset") int offset);
+  List<JobExecution> page(com.alphascope.scheduler.dto.JobQuery query);
 
   /**
    * 原子保存最终执行状态和数据质量，仅允许仍拥有任务的进程更新。
@@ -215,4 +216,58 @@ public interface JobMapper {
    * @param stage 任务、阶段及实际进度详情JSON
    */
   void stageProgress(JobStage stage);
+
+  /**
+   * 读取当前身份最早等待的共享资料任务。
+   *
+   * @return 任务ID，无任务为空
+   */
+  Long pendingShared();
+
+  /**
+   * 锁定当前用户原任务，串行重试和归档。
+   *
+   * @param id 原任务编号
+   * @return 已锁定编号或null
+   */
+  Long lockRow(long id);
+
+  /**
+   * 保存当前执行快照，不覆盖既有历史。
+   *
+   * @param history 完整执行快照与指纹
+   */
+  void archiveAttempt(com.alphascope.scheduler.entity.JobAttemptHistory history);
+
+  /**
+   * 清理已归档的当前阶段，为新执行重新记录。
+   *
+   * @param id 已归档原任务编号
+   */
+  void clearStages(long id);
+
+  /**
+   * 原子重新入队，仅接受可重试终态。
+   *
+   * @param command 新输入、执行号及预算
+   * @return 更新行数
+   */
+  int requeue(com.alphascope.scheduler.dto.JobRetryCommand command);
+
+  /**
+   * 分页读取所属任务执行快照。
+   *
+   * @param query 已验证任务和分页
+   * @return 不可变执行快照
+   */
+  java.util.List<com.alphascope.scheduler.entity.JobAttemptHistory> attempts(
+      com.alphascope.scheduler.dto.JobHistoryQuery query);
+
+  /**
+   * 统计原任务快照。
+   *
+   * @param id 原任务编号
+   * @return 执行历史数
+   */
+  long attemptCount(long id);
 }

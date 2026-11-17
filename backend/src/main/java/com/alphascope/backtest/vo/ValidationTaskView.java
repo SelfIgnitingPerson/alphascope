@@ -45,4 +45,8 @@ public record ValidationTaskView(
     /** 已发布成功证据的校验值。 */
     String evidenceSha256,
     /** 只在明确详情查询加载的轻量结果。 */
-    ValidationSummary summary) {}
+    ValidationSummary summary,
+    /** 详情实际依赖来源；从该任务冻结证据提取，不采用当前配置。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.util.Set<String> inputSources) {}

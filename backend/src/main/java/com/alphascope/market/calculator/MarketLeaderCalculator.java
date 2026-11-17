@@ -1,6 +1,7 @@
 package com.alphascope.market.calculator;
 
 import com.alphascope.market.dto.LeaderScoreEvidence;
+import com.alphascope.market.dto.MarketObservationInput;
 import com.alphascope.market.dto.ScoreCoverage;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.LocalDate;
@@ -35,9 +36,26 @@ public final class MarketLeaderCalculator {
       Map<LocalDate, JsonNode> snapshots,
       Map<String, NavigableMap<LocalDate, Double>> factors,
       JsonNode benchmark) {
+    return calculateScope(
+        new MarketObservationInput(date, calendar, snapshots, factors, benchmark, null, "SH_SZ_A"));
+  }
+
+  /**
+   * 计算明确市场范围内的领先样本；资料不足保留具体原因。
+   *
+   * @param input 同日同源输入
+   * @return 原范围领先样本
+   */
+  public static LeaderScoreEvidence calculateScope(MarketObservationInput input) {
+    var date = input.date();
+    var calendar = input.calendar();
+    var snapshots = input.snapshots();
+    var factors = input.factors();
+    var benchmark = input.benchmark();
+    var scope = input.scope();
     var dates = calendar.stream().filter(d -> !d.isAfter(date)).distinct().sorted().toList();
     if (dates.size() < 21 || !dates.getLast().equals(date)) {
-      return missing(date, 0, 0, "至少需要21个连续交易日");
+      return missing(scope, date, 0, 0, "至少需要21个连续交易日");
     }
     dates = dates.subList(dates.size() - 21, dates.size());
     List<Map<String, JsonNode>> daily = new ArrayList<>();
@@ -45,7 +63,7 @@ public final class MarketLeaderCalculator {
       var snapshot = snapshots.get(day);
       if (snapshot == null
           || !"COMPLETE".equals(snapshot.path("metrics").path("status").asText())) {
-        return missing(date, 0, 0, "领先样本需要连续完整同源截面");
+        return missing(scope, date, 0, 0, "领先样本需要连续完整同源截面");
       }
       Map<String, JsonNode> rows = new HashMap<>();
       for (var row : snapshot.path("raw").path("daily")) {
@@ -60,18 +78,18 @@ public final class MarketLeaderCalculator {
     var first = index.get(dates.getFirst().toString());
     var last = index.get(date.toString());
     if (dates.stream().anyMatch(day -> adjusted(index.get(day.toString())) == null)) {
-      return missing(date, 0, 0, "基准21日窗口不完整，不能只比较两个端点");
+      return missing(scope, date, 0, 0, "基准21日窗口不完整，不能只比较两个端点");
     }
     Double start = adjusted(first), end = adjusted(last);
     if (start == null || end == null) {
-      return missing(date, 0, 0, "同日期基准原价或因子不足");
+      return missing(scope, date, 0, 0, "同日期基准原价或因子不足");
     }
     double base = end / start - 1;
     var candidates = new ArrayList<Candidate>();
     int trading = 0;
     for (var entry : daily.getLast().entrySet()) {
       String code = entry.getKey();
-      if (!MarketBreadthCalculator.stock(code)
+      if (!MarketBreadthCalculator.stock(code, scope)
           || !"1".equals(entry.getValue().path("tradestatus").asText())) {
         continue;
       }
@@ -112,7 +130,7 @@ public final class MarketLeaderCalculator {
       }
     }
     if (trading <= 0 || candidates.size() / (double) trading < 0.95) {
-      return missing(date, trading, candidates.size(), "全市场有效历史覆盖不足95%，不能从少数股票挑领先名单");
+      return missing(scope, date, trading, candidates.size(), "全市场有效历史覆盖不足95%，不能从少数股票挑领先名单");
     }
     candidates.sort(
         Comparator.comparingDouble(Candidate::amount).reversed().thenComparing(Candidate::code));
@@ -120,7 +138,7 @@ public final class MarketLeaderCalculator {
     return new LeaderScoreEvidence(
         date,
         "AVAILABLE",
-        new ScoreCoverage("SH_SZ_A", trading, candidates.size(), true),
+        new ScoreCoverage(scope, trading, candidates.size(), true),
         chosen.stream().map(Candidate::code).toList(),
         (int) chosen.stream().filter(Candidate::confirmed).count(),
         base,
@@ -128,11 +146,11 @@ public final class MarketLeaderCalculator {
   }
 
   private static LeaderScoreEvidence missing(
-      LocalDate date, int expected, int observed, String reason) {
+      String scope, LocalDate date, int expected, int observed, String reason) {
     return new LeaderScoreEvidence(
         date,
         "INSUFFICIENT_DATA",
-        new ScoreCoverage("SH_SZ_A", expected, observed, false),
+        new ScoreCoverage(scope, expected, observed, false),
         List.of(),
         0,
         null,

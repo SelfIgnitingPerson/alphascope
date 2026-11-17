@@ -4,6 +4,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.market.dto.ProviderProbeRequest;
 import com.alphascope.market.service.ProviderProbeService;
 import com.alphascope.market.vo.ProviderProbeView;
+import com.alphascope.operations.policy.OperationalData;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/admin/market/providers")
 public class ProviderProbeController {

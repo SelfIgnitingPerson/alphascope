@@ -90,6 +90,8 @@ export const stageNames: Record<string, string> = {
   THEME_MEMBERS: '披露主题样本',
   FORECASTS: '机构预测采集',
   MARKET_OBSERVATION: '沪深市场分项观察',
+  MARKET_UNIVERSE: '北交所在市目录核验',
+  FULL_MARKET_ANALYSIS: '三所同日截面与历史核验',
   INDICATORS: '指标计算',
   SCORE_RULES: '评分与规则',
   REPORT: '生成报告',

@@ -99,12 +99,44 @@ final class DevelopmentSchemaSynchronizer {
           Files.readString(
               files.root.resolve("backend/src/main/resources/db/migration/V1__baseline.sql"));
       int changed = 0;
+      // 删除仅获准清理且已确认空的估值预留表；不允许借清理丢弃任何记录。
+      var preserved = new LinkedHashMap<>(before.tables());
+      preserved.remove("storage_budget");
+      if (preserved.containsKey("valuation_snapshot")) {
+        if (preserved.get("valuation_snapshot").rows() != 0)
+          throw new IllegalStateException("估值预留表已有数据，拒绝自动删除");
+        try (var ddl = connection.createStatement()) {
+          ddl.execute("DROP TABLE valuation_snapshot");
+        }
+        preserved.remove("valuation_snapshot");
+        changed++;
+      }
+      before =
+          new Manifest(
+              before.formatVersion(),
+              before.fileName(),
+              before.sha256(),
+              before.createdAt(),
+              preserved);
       for (String[] column :
           List.of(
+              new String[] {"instrument", "delisted_at"},
+              new String[] {"instrument", "lifecycle_source"},
+              new String[] {"instrument", "lifecycle_observed_at"},
+              new String[] {"instrument", "lifecycle_evidence_json"},
+              new String[] {"instrument", "lifecycle_hash"},
+              new String[] {"job_execution", "reservation_bytes"},
+              new String[] {"research_validation_task", "reservation_bytes"},
               new String[] {"job_execution", "data_status"},
               new String[] {"job_stage", "data_status"},
               new String[] {"job_stage", "details_json"},
               new String[] {"market_data_revision", "recorded_at"})) {
+        try (var present =
+            connection
+                .getMetaData()
+                .getTables(connection.getCatalog(), null, column[0], new String[] {"TABLE"})) {
+          if (!present.next()) continue; // 旧库尚无整表，后续按基线建表，不能先ALTER。
+        }
         try (var rows =
             connection
                 .getMetaData()
@@ -120,12 +152,18 @@ final class DevelopmentSchemaSynchronizer {
           }
         }
       }
-      for (String table : List.of("job_execution", "job_stage")) {
-        String declaration = baselineColumn(baseline, table, "status");
+      for (String[] target :
+          List.of(
+              new String[] {"job_execution", "status"},
+              new String[] {"job_stage", "status"},
+              new String[] {"job_execution", "job_name"})) {
+        String table = target[0];
+        String columnName = target[1];
+        String declaration = baselineColumn(baseline, table, columnName);
         String comment =
             declaration.substring(declaration.indexOf("COMMENT '") + 9, declaration.length() - 1);
         try (var column =
-            connection.getMetaData().getColumns(connection.getCatalog(), null, table, "status")) {
+            connection.getMetaData().getColumns(connection.getCatalog(), null, table, columnName)) {
           column.next();
           if (!comment.equals(column.getString("REMARKS"))) {
             writer.execute(connection, "ALTER TABLE `" + table + "` MODIFY COLUMN " + declaration);
@@ -142,6 +180,12 @@ final class DevelopmentSchemaSynchronizer {
               "auth_session",
               "auth_event",
               "source_license",
+              "storage_budget",
+              "theme_leader_revision",
+              "market_universe_snapshot",
+              "research_plan",
+              "research_plan_review",
+              "job_attempt_history",
               "service_alert")) {
         try (var rows =
             connection
@@ -153,12 +197,33 @@ final class DevelopmentSchemaSynchronizer {
             if (start < 0 || end < 0) {
               throw new IllegalStateException("当前基线缺少受控表定义");
             }
-            writer.execute(connection, baseline.substring(start, end));
+            String declaration = baseline.substring(start, end);
+            // 新执行历史的父表复合键由后续统一对齐；旧库先建表，随后安装外键。
+            if (table.equals("job_attempt_history"))
+              declaration =
+                  declaration.replaceAll(",\\s*CONSTRAINT `fk_job_attempt_parent`[^\\n]*", "");
+            writer.execute(connection, declaration);
             changed++;
           }
         }
       }
       changed += isolatePrivateTables(connection, baseline);
+      changed += alignTenantForeignKeys(connection);
+      try (var indexes =
+          connection
+              .getMetaData()
+              .getIndexInfo(connection.getCatalog(), null, "market_data_revision", false, false)) {
+        boolean exists = false;
+        while (indexes.next())
+          if ("idx_revision_batch_source".equals(indexes.getString("INDEX_NAME"))) exists = true;
+        if (!exists) {
+          writer.execute(
+              connection,
+              "ALTER TABLE market_data_revision ADD KEY idx_revision_batch_source(batch_id,source)");
+          changed++;
+        }
+      }
+      changed += StorageSchemaRules.install(connection, baseline);
       try (var statement = connection.createStatement();
           var rows = statement.executeQuery("SELECT COUNT(*) FROM app_user WHERE id=1")) {
         rows.next();
@@ -266,6 +331,83 @@ final class DevelopmentSchemaSynchronizer {
             connection,
             "ALTER TABLE `" + table + "` " + drop + "ADD " + prefix + " (" + columns + ")");
         changed++;
+      }
+    }
+    return changed;
+  }
+
+  /** 对同一私人空间的父子关系补数据库约束，先拒绝现有错配。 */
+  private int alignTenantForeignKeys(Connection c) throws Exception {
+    int changed = 0;
+    for (var relation :
+        List.of(
+            new String[] {"job_stage", "job_execution", "job_id", "job_stage_ibfk_1"},
+            new String[] {
+              "job_attempt_history", "job_execution", "job_id", "fk_job_attempt_parent"
+            },
+            new String[] {
+              "report_input_snapshot",
+              "analysis_report",
+              "report_id",
+              "report_input_snapshot_ibfk_1"
+            },
+            new String[] {"report_source", "analysis_report", "report_id", "report_source_ibfk_1"},
+            new String[] {
+              "notification_log", "analysis_report", "report_id", "notification_log_ibfk_1"
+            })) {
+      boolean tenant = false, exists = false;
+      try (var keys = c.getMetaData().getImportedKeys(c.getCatalog(), null, relation[0])) {
+        while (keys.next())
+          if (relation[3].equals(keys.getString("FK_NAME"))) {
+            exists = true;
+            if ("tenant_id".equals(keys.getString("FKCOLUMN_NAME"))) tenant = true;
+          }
+      }
+      if (tenant) continue;
+      try (var q = c.createStatement();
+          var rows =
+              q.executeQuery(
+                  "SELECT COUNT(*) FROM "
+                      + relation[0]
+                      + " x JOIN "
+                      + relation[1]
+                      + " p ON p.id=x."
+                      + relation[2]
+                      + " WHERE p.tenant_id<>x.tenant_id")) {
+        rows.next();
+        if (rows.getLong(1) > 0) throw new IllegalStateException("发现父子记录租户不一致，拒绝升级约束");
+      }
+      if (exists) {
+        writer.execute(c, "ALTER TABLE " + relation[0] + " DROP FOREIGN KEY " + relation[3]);
+        changed++;
+      }
+      try {
+        writer.execute(
+            c,
+            "ALTER TABLE "
+                + relation[0]
+                + " ADD CONSTRAINT "
+                + relation[3]
+                + " FOREIGN KEY(tenant_id,"
+                + relation[2]
+                + ") REFERENCES "
+                + relation[1]
+                + "(tenant_id,id)");
+        changed++;
+      } catch (Exception failed) {
+        if (exists)
+          writer.execute(
+              c,
+              "ALTER TABLE "
+                  + relation[0]
+                  + " ADD CONSTRAINT "
+                  + relation[3]
+                  + " FOREIGN KEY("
+                  + relation[2]
+                  + ") REFERENCES "
+                  + relation[1]
+                  + "(id)");
+        throw failed;
       }
     }
     return changed;

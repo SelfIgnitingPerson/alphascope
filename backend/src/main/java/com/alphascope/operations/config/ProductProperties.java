@@ -39,6 +39,18 @@ public class ProductProperties {
   @Min(33554432)
   private long maximumEvidenceBytes = 1073741824L;
 
+  /** 应用运行资料文件系统最低剩余空间；数据库磁盘须由其宿主另外监控。 */
+  @Min(1048576)
+  private long minimumRuntimeFreeBytes = 268435456L;
+
+  /** 单个日报保守预留，超过实际总预算时拒绝入队。 */
+  @Min(1048576)
+  private long reportReservationBytes = 33554432L;
+
+  /** 单个全市场采集保守预留；不等于已写入字节。 */
+  @Min(1048576)
+  private long collectionReservationBytes = 536870912L;
+
   /** 可选的运维Webhook；空值时不产生外部请求。 */
   @lombok.ToString.Exclude private String alertWebhookUrl = "";
 

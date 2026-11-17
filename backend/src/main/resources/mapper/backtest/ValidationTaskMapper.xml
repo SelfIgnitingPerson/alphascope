@@ -4,8 +4,8 @@
   <sql id="metadata">id, status, scope, data_scope, owner_token, completed_units, total_units, message,
     evidence_sha256, created_at, started_at, finished_at, heartbeat_at, deadline_at, updated_at</sql>
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO research_validation_task(status, scope, data_scope, active_key, request_json)
-    VALUES('PENDING', #{scope}, #{dataScope}, #{activeKey}, #{requestJson})
+    INSERT INTO research_validation_task(status, scope, data_scope, active_key, request_json,reservation_bytes)
+    VALUES('PENDING', #{scope}, #{dataScope}, #{activeKey}, #{requestJson},#{reservationBytes})
   </insert>
   <select id="get" resultType="com.alphascope.backtest.entity.ResearchValidationTask">
     SELECT <include refid="metadata"/>, request_json, summary_json FROM research_validation_task WHERE id=#{id}

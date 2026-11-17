@@ -36,6 +36,9 @@ public class Instrument {
   /** 已知上市日期；NULL表示尚未登记，不据此伪造上市前行情 */
   private LocalDate listedAt;
 
+  /** 已明确的退市日期；NULL表示未取得日期证据。 */
+  private LocalDate delistedAt;
+
   /** 标的启用标志：1启用，0停用 */
   private Boolean active;
 

@@ -17,4 +17,6 @@ public record ExperimentReplayView(
     /** 本次复算结果指纹。 */
     String actualHash,
     /** 完整复算结果。 */
-    BacktestView result) {}
+    BacktestView result,
+    /** 复算实际引用的原始冻结来源。 */
+    java.util.Set<String> inputSources) {}

@@ -1,6 +1,10 @@
 package com.alphascope.common.diagnostic;
 
+import com.alphascope.common.diagnostic.baostock.BaoStockApiException;
+import com.alphascope.common.diagnostic.baostock.BaoStockErrors;
 import com.alphascope.common.exception.BusinessException;
+import com.alphascope.common.response.ResultCode;
+import com.alphascope.common.task.TaskStoppedException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -136,11 +140,10 @@ public final class FailureDiagnostics {
         || java.util.Set.of("AVAILABLE", "SUCCESS", "NOT_CHECKED").contains(value)) return null;
     String key = value.split("[：: ]", 2)[0];
     if (key.matches("BAOSTOCK_API_ERROR_[1-9][0-9]{0,9}")) {
-      return com.alphascope.common.diagnostic.baostock.BaoStockErrors.diagnose(
-          key.substring("BAOSTOCK_API_ERROR_".length()), null);
+      return BaoStockErrors.diagnose(key.substring("BAOSTOCK_API_ERROR_".length()), null);
     }
     if (key.equals("BAOSTOCK_ACCESS_RESTRICTED_10001011")) {
-      return com.alphascope.common.diagnostic.baostock.BaoStockErrors.diagnose("10001011", null);
+      return BaoStockErrors.diagnose("10001011", null);
     }
     if (CATALOG.containsKey(key)) return CATALOG.get(key);
     if (key.contains("ACCESS_RESTRICTED") || key.equals("10001011"))
@@ -151,7 +154,7 @@ public final class FailureDiagnostics {
         && (key.contains("STATE_") || key.contains("POLICY_") || key.contains("WRITE_FAILED")))
       return CATALOG.get("POLICY_STATE_UNREADABLE");
     if (key.contains("NOT_CONFIGURED")) return CATALOG.get("NOT_CONFIGURED");
-    if (key.equals("PUBLIC_MARKET_ACCESS_COOLDOWN")) return CATALOG.get("ACCESS_COOLDOWN");
+    if (key.startsWith("PUBLIC_MARKET_ACCESS_COOLDOWN")) return CATALOG.get("ACCESS_COOLDOWN");
     if (key.contains("ACCESS_DENIED") || key.equals("FORBIDDEN"))
       return CATALOG.get("ACCESS_DENIED");
     if (key.equals("HTTP_BODY_LIMIT_EXCEEDED"))
@@ -207,6 +210,47 @@ public final class FailureDiagnostics {
           IMPACT,
           action);
     }
+    if (key.startsWith("LIFECYCLE_"))
+      return new FailureDiagnosis(
+          key,
+          "证券生命周期尚未核实",
+          "上市日期、退市日期或证券身份没有取得可靠对应证据；旧精选层日期不能直接当成北交所上市日。",
+          "暂停该证券完整历史初始化，不把上市前区间当缺失行情。",
+          "管理员核对公开资料后，在证券生命周期维护入口补齐日期和HTTPS依据，再重试；不以首条K线日期代替上市日期。");
+    if (key.startsWith("FULL_A_"))
+      return new FailureDiagnosis(
+          key,
+          "三所同日证据尚未完整",
+          "清单日期、北交所成员、价格覆盖或同源历史窗口未通过核验。",
+          "保留已有沪深观察及真实目录，全A总评级继续UNKNOWN。",
+          "查看三所核验任务的精确日期与缺项；补齐真实证据后重试，不倒填历史或拼接不同来源因子。");
+    if (key.startsWith("LIFECYCLE_"))
+      return new FailureDiagnosis(
+          key,
+          "证券生命周期未核实",
+          "上市日期、证券身份或退市边界尚未通过来源核验；旧精选层日期不能直接当作北交所上市日。",
+          "暂停该证券完整历史采集，不把上市前区间当缺失，也不把缺失当停牌。",
+          "管理员在运行检查补录公开公告依据与上市/退市日期后重试；不要拿首条K线代替上市日。");
+    if (key.startsWith("FULL_A_"))
+      return new FailureDiagnosis(
+          key,
+          "三所同日证据仍不完整",
+          "当日清单、交易所成员、价格/停牌或同源因子未通过逐项核验。",
+          "保留既有沪深观察和冻结报告，完整评级继续UNKNOWN。",
+          "按目录日期核对三所分母；历史日期需使用真实归档，同源历史不足时继续积累，不倒填。");
+    if (key.startsWith("PUBLIC_ROSTER_"))
+      return new FailureDiagnosis(
+          key,
+          "当前证券目录未通过完整核验",
+          "供应商目录的分页数量、代码唯一性、排序、交易所范围或前后确认发生异常；不把已返回部分名单当作完整目录。",
+          "本次目录不发布，保留此前有效归档；当前日期缺项不改成零。",
+          "查看诊断代码区分PAGE、COUNT、MEMBER或DATE；稍后有限重试，持续出现时由维护人员核对供应商目录协议。");
+    if (key.equals("UNIVERSE_SOURCE_NOT_CONFIGURED"))
+      return new FailureDiagnosis(
+          key, "未启用北交所目录来源", "当前真实通道配置未包含新浪。", "不能执行此目录补齐。", "由管理员在真实通道配置启用SINA；PUBLIC仍需对应来源使用依据。");
+    if (key.equals("UNIVERSE_EVIDENCE_INVALID") || key.equals("UNIVERSE_SAVE_INVALID"))
+      return new FailureDiagnosis(
+          key, "目录归档完整性核验失败", "成员、分页证据或内容指纹不一致。", "该记录不会用于覆盖判断。", "维护人员按目录日期与归档编号核对存储，不覆盖或伪造原指纹。");
     if (key.equals("PUBLIC_MARKET_HISTORY_NOT_ARCHIVED") || key.equals("HISTORY_NOT_ARCHIVED"))
       return new FailureDiagnosis(
           "HISTORY_NOT_ARCHIVED",
@@ -260,14 +304,14 @@ public final class FailureDiagnostics {
   public static FailureDiagnosis from(Throwable failure) {
     FailureDiagnosis fallback = CATALOG.get("UNCLASSIFIED_FAILURE");
     for (int depth = 0; failure != null && depth < 8; depth++, failure = failure.getCause()) {
-      if (failure instanceof com.alphascope.common.diagnostic.baostock.BaoStockApiException api) {
-        return com.alphascope.common.diagnostic.baostock.BaoStockErrors.diagnose(api);
+      if (failure instanceof BaoStockApiException api) {
+        return BaoStockErrors.diagnose(api);
       }
-      if (failure instanceof com.alphascope.common.task.TaskStoppedException stopped)
+      if (failure instanceof TaskStoppedException stopped)
         return CATALOG.get(stopped.getReason().name());
       String message = failure.getMessage();
       if (failure instanceof BusinessException business
-          && (business.getCode() == com.alphascope.common.response.ResultCode.FORBIDDEN
+          && (business.getCode() == ResultCode.FORBIDDEN
               || (message != null && message.startsWith("数据源使用范围尚未就绪："))))
         return CATALOG.get("ACCESS_DENIED");
       if (failure instanceof BusinessException

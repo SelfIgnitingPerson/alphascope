@@ -12,6 +12,7 @@ export const navigation = [
     label: '资产与报告',
     items: [
       { path: '/portfolio', label: '持仓管理', icon: 'portfolio' },
+      { path: '/plans', label: '研究计划', icon: 'watchlist' },
       { path: '/reports', label: '研究报告', icon: 'reports' },
       { path: '/backtest', label: '历史信号', icon: 'history' },
     ],

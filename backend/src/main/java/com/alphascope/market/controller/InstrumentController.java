@@ -8,6 +8,7 @@ import com.alphascope.market.service.MarketService;
 import com.alphascope.market.vo.BarView;
 import com.alphascope.market.vo.BarsResponse;
 import com.alphascope.market.vo.InstrumentView;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/instruments")
 public class InstrumentController {

@@ -1,5 +1,7 @@
 package com.alphascope.industry.service;
 
+import com.alphascope.industry.dto.ThemeLeaderUpdateInput;
+import com.alphascope.industry.vo.ThemeLeaderRevisionView;
 import com.alphascope.industry.vo.ThemeLeadersView;
 import java.util.List;
 
@@ -23,4 +25,21 @@ public interface ThemeLeadersService {
    * @return 带整理日期、业务地位和原始来源的目录
    */
   ThemeLeadersView get(String code);
+
+  /**
+   * 读取当前维护修订与复核提醒。
+   *
+   * @param code 已登记主题代码
+   * @return 当前目录与修订
+   */
+  ThemeLeaderRevisionView revision(String code);
+
+  /**
+   * 管理员追加目录修订，原披露成分与历史报告不变。
+   *
+   * @param code 主题代码
+   * @param input 预期修订及新目录
+   * @return 新修订
+   */
+  ThemeLeaderRevisionView revise(String code, ThemeLeaderUpdateInput input);
 }

@@ -25,7 +25,8 @@
     <![CDATA[
     INSERT IGNORE INTO market_breadth_snapshot(trade_date, universe_scope, source, content_hash,
       metrics_json, raw_json, fetched_at)
-    VALUES(#{tradeDate}, 'SH_SZ_A', COALESCE(#{source}, 'BAOSTOCK'), #{contentHash}, #{metricsJson}, #{rawJson}, #{fetchedAt})
+    VALUES(#{tradeDate}, COALESCE(#{universeScope},'SH_SZ_A'), COALESCE(#{source}, 'BAOSTOCK'), #{contentHash}, #{metricsJson}, #{rawJson}, #{fetchedAt})
     ]]>
   </insert>
+  <select id="fullForDate" resultType="com.alphascope.market.entity.MarketBreadthSnapshot">SELECT id,trade_date,universe_scope,source,content_hash,metrics_json,raw_json,fetched_at FROM market_breadth_snapshot WHERE trade_date=#{date} AND universe_scope='FULL_A' AND source=#{source} ORDER BY id DESC LIMIT 1</select>
 </mapper>

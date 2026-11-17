@@ -4,8 +4,9 @@
  <select id="capacity" resultType="com.alphascope.operations.vo.ResearchCapacity">
  SELECT (SELECT COUNT(*) FROM job_execution WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_jobs,
  (SELECT COUNT(*) FROM research_validation_task WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_validations,
- (SELECT COALESCE(SUM(OCTET_LENGTH(evidence_json)),0) FROM research_validation_task) AS evidence_bytes,
+ COALESCE((SELECT used_bytes FROM storage_budget WHERE scope_id=#{scope}),0) AS evidence_bytes,
  (SELECT MIN(created_at) FROM job_execution WHERE status='PENDING') AS oldest_pending_at
  </select>
  <select id="lockUser" resultType="java.lang.Long">SELECT id FROM app_user WHERE id=#{userId} FOR UPDATE</select>
+ <select id="storage" resultType="com.alphascope.operations.vo.StorageTotals">SELECT COALESCE((SELECT used_bytes FROM storage_budget WHERE scope_id=#{scope}),0) AS used_bytes,COALESCE((SELECT reserved_bytes FROM storage_budget WHERE scope_id=#{scope}),0) AS reserved_bytes,(SELECT limit_bytes FROM storage_budget WHERE scope_id=-1) AS limit_bytes,0 AS database_allocated_bytes</select>
 </mapper>

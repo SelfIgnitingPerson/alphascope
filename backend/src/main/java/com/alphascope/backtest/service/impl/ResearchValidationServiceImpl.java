@@ -2,6 +2,7 @@ package com.alphascope.backtest.service.impl;
 
 import com.alphascope.backtest.calculator.MarketScoreValidationCalculator;
 import com.alphascope.backtest.calculator.SignalEvaluationCalculator;
+import com.alphascope.backtest.calculator.StrategyReplayCalculator;
 import com.alphascope.backtest.calculator.TechnicalRuleReplayCalculator;
 import com.alphascope.backtest.dto.SignalEvaluationInput;
 import com.alphascope.backtest.dto.TechnicalReplayInput;
@@ -51,8 +52,8 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
   /** {@inheritDoc} */
   @Override
   public ResearchValidationView validate(ValidationCommand command) {
-    if (licenses != null) licenses.requireAll("DERIVED_REPORT");
     var dataset = data.capture(command);
+    if (licenses != null) licenses.requireEvidence(dataset, "DERIVED_REPORT");
     ExecutionContext.checkpoint();
     var request = command.request();
     var blockers = new ArrayList<String>();
@@ -103,6 +104,7 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
                 + signals.getBytes(StandardCharsets.UTF_8).length;
         if (evidenceBytes > properties.getValidation().getMaximumEvidenceBytes())
           throw new IllegalArgumentException("重建证据超过容量限制，请减少证券或日期区间");
+        var strategy = StrategyReplayCalculator.evaluate(specification);
         replay =
             new ResearchValidationView.Replay(
                 "RETROSPECTIVE_RECONSTRUCTION",
@@ -113,7 +115,9 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
                 signals,
                 Jsons.hash(signals),
                 result,
-                Jsons.hash(Jsons.write(result)));
+                Jsons.hash(Jsons.write(result)),
+                strategy,
+                Jsons.hash(Jsons.write(strategy)));
       } else blockers.add(stock.symbol() + "：" + stock.failure());
       var bars = stock.bars();
       stocks.add(

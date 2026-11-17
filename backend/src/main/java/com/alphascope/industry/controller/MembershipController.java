@@ -3,6 +3,7 @@ package com.alphascope.industry.controller;
 import com.alphascope.common.response.Result;
 import com.alphascope.industry.dto.MembershipInput;
 import com.alphascope.industry.service.MembershipService;
+import com.alphascope.operations.policy.OperationalData;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 public class MembershipController {
   private final MembershipService service;

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ChannelCapabilities from '../components/channels/ChannelCapabilities.vue';
 import { computed, ref } from 'vue';
 import ChannelProbePanel from '../components/channels/ChannelProbePanel.vue';
 import { useAuth } from '../composables/useAuth';
@@ -84,17 +85,6 @@ const newestStored = computed(() =>
     .map((item) => item.trade_date)
     .sort()
     .at(-1),
-);
-const matrix = computed(() =>
-  Object.entries(capabilityNames).map(([code, name]) => ({
-    code,
-    name,
-    channels:
-      data.value?.channels.map((item) => ({
-        code: item.channel,
-        value: item.capabilities?.find((ability) => ability.capability === code),
-      })) ?? [],
-  })),
 );
 </script>
 <template>
@@ -407,64 +397,7 @@ const matrix = computed(() =>
             @completed="refreshStatus"
           />
         </template>
-        <template #capabilities>
-          <SectionCard
-            title="按所需能力选择通道"
-            description="此表是项目已经实现的能力及本进程最近观测；不等于供应商全部产品能力，也不等于账号已获权限。"
-          >
-            <div class="capability-matrix">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">能力</th>
-                    <th
-                      v-for="item in data.channels"
-                      :key="item.channel"
-                      scope="col"
-                    >
-                      {{ sourceName(item.channel) }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in matrix"
-                    :key="row.code"
-                  >
-                    <th scope="row">{{ row.name }}</th>
-                    <td
-                      v-for="item in row.channels"
-                      :key="item.code"
-                    >
-                      <StateBadge
-                        v-if="item.value?.supported"
-                        :value="item.value.state"
-                        context="channel"
-                        :explanation="
-                          channelStatusExplanation({ channel: item.code, capability: item.value })
-                        "
-                      />
-                      <span
-                        v-else
-                        class="help-text"
-                      >
-                        正常跳过
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p class="help-text">
-              个股日线已包含同源因子；“截面复权因子”专指全市场研究接口。东方财富指数当前仅支持000300.SH。日线能力用于收盘研究，不是盘中实时Tick。
-            </p>
-            <p class="help-text">
-              交易日历来源：{{
-                sourceName(data.calendarSource)
-              }}。若本进程尚未获取日历，显示“尚未采集”；已存日历和行情不会因此失效。
-            </p>
-          </SectionCard>
-        </template>
+        <template #capabilities><ChannelCapabilities :data="data" /></template>
         <template #saved>
           <SectionCard
             title="已入库数据来源"
@@ -679,27 +612,6 @@ details summary {
   font-size: 13px;
   color: #245f72;
   line-height: 2;
-}
-.capability-matrix {
-  overflow: auto;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  white-space: nowrap;
-  font-size: 13px;
-}
-th,
-td {
-  text-align: left;
-  padding: 16px;
-  border-bottom: 1px solid #e4ebf1;
-}
-thead {
-  background: #f6f9fb;
-}
-tbody th {
-  color: #52667e;
 }
 @media (max-width: 1000px) {
   .channel-detail__columns {

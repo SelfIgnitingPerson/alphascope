@@ -127,6 +127,21 @@ public class MarketObservationServiceImpl implements MarketObservationService {
   /** {@inheritDoc} */
   @Override
   public void sync(LocalDate date) {
+    rebuild(date, true);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public void calculateStored(LocalDate date) {
+    var existing = view(date);
+    if (existing != null
+        && existing.analysis() != null
+        && date.equals(existing.analysis().businessDate())
+        && "AVAILABLE".equals(existing.analysis().status())) return;
+    rebuild(date, false);
+  }
+
+  private void rebuild(LocalDate date, boolean collectMissing) {
     if (market.synthetic()) {
       return;
     }
@@ -151,7 +166,7 @@ public class MarketObservationServiceImpl implements MarketObservationService {
       if (source == null || !router.sources().contains(source)) {
         throw new IllegalStateException("当前截面没有已配置的实际来源");
       }
-      breadth.syncHistory(dates, source);
+      if (collectMissing) breadth.syncHistory(dates, source);
       Map<LocalDate, JsonNode> inputs = new TreeMap<>();
       List<MarketSnapshotReference> refs = new ArrayList<>();
       for (var d : dates) {
@@ -195,7 +210,8 @@ public class MarketObservationServiceImpl implements MarketObservationService {
                   .end(date)
                   .source(source)
                   .build(),
-              codes);
+              codes,
+              collectMissing);
       refs.addAll(factors.references());
       var analysis =
           MarketObservationCalculator.calculate(
@@ -308,7 +324,8 @@ public class MarketObservationServiceImpl implements MarketObservationService {
    * @return 实际可用因子、原始快照引用及缺失计数
    * @throws InterruptedException 线程被取消；交由入口恢复中断标记并停止本次采集
    */
-  private FactorLoad collectFactors(ResearchFactorRequest window, List<String> codes)
+  private FactorLoad collectFactors(
+      ResearchFactorRequest window, List<String> codes, boolean collectMissing)
       throws InterruptedException {
     // 未声明因子能力时不对数千只股票逐项查询或发送必然失败的请求。
     if (!router.supports(window.source(), MarketCapability.ADJUSTMENT_FACTORS))
@@ -331,6 +348,11 @@ public class MarketObservationServiceImpl implements MarketObservationService {
               .build();
       try {
         var cached = mapper.factor(request);
+        if (cached == null && !collectMissing) {
+          failures++;
+          completed++;
+          continue;
+        }
         if (cached == null) {
           var fetched = router.factors(request);
           if (!request.source().equals(fetched.source())

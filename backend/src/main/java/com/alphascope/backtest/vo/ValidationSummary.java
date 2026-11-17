@@ -66,7 +66,11 @@ public record ValidationSummary(
       /** 当前固定技术规则的逐区间描述统计。 */
       BacktestView reconstructed,
       /** 该证券缺项。 */
-      String failure) {}
+      String failure,
+      /** 新任务才有的策略执行扩展，旧任务保持为空。 */
+      @com.fasterxml.jackson.annotation.JsonInclude(
+              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+          StrategySimulation strategy) {}
 
   /**
    * 显式裁剪原始输入；禁止页面接口意外返回数兆字节证据。
@@ -100,7 +104,8 @@ public record ValidationSummary(
                         stock.savedRetrospective().dataStatus(),
                         stock.savedPointInTime().dataStatus(),
                         stock.replay() == null ? null : stock.replay().result(),
-                        stock.failure()))
+                        stock.failure(),
+                        stock.replay() == null ? null : stock.replay().strategy()))
             .toList(),
         report.blockers(),
         report.limitations(),

@@ -6,6 +6,7 @@ import com.alphascope.backtest.vo.ValidationTaskView;
 import com.alphascope.common.dto.PageRequest;
 import com.alphascope.common.response.PageResponse;
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import org.springdoc.core.annotations.ParameterObject;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class ValidationTaskController {
   private final ValidationTaskService tasks;
@@ -84,6 +86,7 @@ public class ValidationTaskController {
    * @param id 任务主键
    * @return 完整冻结JSON附件
    */
+  @ResearchData(permissions = {"DISPLAY", "EXPORT"})
   @GetMapping("/api/v1/backtest/validation-tasks/{id}/evidence")
   public ResponseEntity<byte[]> evidence(@PathVariable long id) {
     return ResponseEntity.ok()

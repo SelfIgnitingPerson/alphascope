@@ -8,13 +8,13 @@
 
   <select id="instrument" resultType="com.alphascope.market.entity.Instrument">
     <![CDATA[
-    SELECT id,symbol,name,exchange,type,active FROM instrument WHERE symbol=#{symbol}
+    SELECT id,symbol,name,exchange,type,active,listed_at,delisted_at FROM instrument WHERE symbol=#{symbol}
     ]]>
   </select>
 
   <select id="instruments" resultType="com.alphascope.market.entity.Instrument">
     <![CDATA[
-    SELECT id, symbol, name, exchange, type, active
+    SELECT id, symbol, name, exchange, type, active,listed_at,delisted_at
     FROM instrument
     WHERE symbol LIKE CONCAT('%', #{q}, '%')
       OR name LIKE CONCAT('%', #{q}, '%')
@@ -133,16 +133,13 @@
   <select id="latestSources" resultType="com.alphascope.market.dto.MarketSourceDO">
     <![CDATA[
     SELECT i.symbol, b.source, b.trade_date, b.fetched_at, b.batch_id
-    FROM daily_bar b
-    JOIN instrument i
-      ON i.id=b.instrument_id
-    WHERE b.is_synthetic=#{synthetic}
-      AND b.id=(
+    FROM instrument i
+    JOIN daily_bar b ON b.id=(
       SELECT x.id
       FROM daily_bar x
-      WHERE x.instrument_id=b.instrument_id
+      WHERE x.instrument_id=i.id
         AND x.is_synthetic=#{synthetic}
-      ORDER BY x.trade_date DESC, x.fetched_at DESC
+      ORDER BY x.trade_date DESC, x.fetched_at DESC, x.id DESC
       LIMIT 1
     )
     ORDER BY i.symbol

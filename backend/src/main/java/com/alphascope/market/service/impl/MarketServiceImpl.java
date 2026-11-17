@@ -6,9 +6,12 @@ import com.alphascope.common.diagnostic.baostock.BaoStockErrors;
 import com.alphascope.common.dto.DateRangeRequest;
 import com.alphascope.common.dto.InstrumentHistoryQuery;
 import com.alphascope.common.entity.ResearchCollection;
+import com.alphascope.common.exception.BusinessException;
 import com.alphascope.common.exception.NotFoundException;
 import com.alphascope.common.mapper.ResearchCollectionMapper;
 import com.alphascope.common.response.PageResponse;
+import com.alphascope.common.response.ResultCode;
+import com.alphascope.common.task.TaskStoppedException;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.common.validation.DateRangeValidator;
 import com.alphascope.market.dto.InstrumentSearchRequest;
@@ -24,9 +27,11 @@ import com.alphascope.market.mapper.MarketMapper;
 import com.alphascope.market.policy.MarketCachePolicy;
 import com.alphascope.market.provider.MarketCapability;
 import com.alphascope.market.provider.MarketDataProvider;
+import com.alphascope.market.provider.MarketFailureSummary;
 import com.alphascope.market.provider.baostock.BaoStockAccessGuard;
 import com.alphascope.market.provider.baostock.BaoStockRequestPolicy;
 import com.alphascope.market.provider.research.ResearchDataRouter;
+import com.alphascope.market.service.InstrumentLifecycleService;
 import com.alphascope.market.service.MarketService;
 import com.alphascope.market.service.MarketWriteService;
 import com.alphascope.market.vo.BaoStockPolicyView;
@@ -62,6 +67,13 @@ public class MarketServiceImpl implements MarketService {
   private final MarketWriteService writer;
   private final ResearchCollectionMapper collections;
   private final ResearchDataRouter research;
+
+  private InstrumentLifecycleService lifecycle;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public void setLifecycle(InstrumentLifecycleService lifecycle) {
+    this.lifecycle = lifecycle;
+  }
 
   private long cacheMinutes;
   private final int baoStockDailyBudget;
@@ -370,6 +382,8 @@ public class MarketServiceImpl implements MarketService {
     if (listed != null && listed.isAfter(start)) {
       start = listed;
     }
+    if (i.getDelistedAt() != null && !end.isBefore(i.getDelistedAt()))
+      end = i.getDelistedAt().minusDays(1);
     if (start.isAfter(end)) {
       return Set.of();
     }
@@ -394,6 +408,9 @@ public class MarketServiceImpl implements MarketService {
   /** {@inheritDoc} */
   @Override
   public String dayStatus(String symbol, LocalDate date) {
+    var metadata = instrument(symbol);
+    if (metadata.getDelistedAt() != null && !date.isBefore(metadata.getDelistedAt()))
+      return "DELISTED";
     var listed = mapper.listedAt(instrument(symbol).getId());
     if (listed != null && date.isBefore(listed)) {
       return "NOT_LISTED";
@@ -427,6 +444,7 @@ public class MarketServiceImpl implements MarketService {
   /** {@inheritDoc} */
   @Override
   public int sync(String symbol, LocalDate start, LocalDate end) {
+    if (!synthetic() && lifecycle != null) lifecycle.ensure(symbol);
     var i = instrument(symbol);
     var listed = mapper.listedAt(i.getId());
     if (listed != null && listed.isAfter(start)) {
@@ -435,6 +453,9 @@ public class MarketServiceImpl implements MarketService {
     if (start.isAfter(end)) {
       return 0;
     }
+    if (i.getDelistedAt() != null && !end.isBefore(i.getDelistedAt()))
+      end = i.getDelistedAt().minusDays(1);
+    if (start.isAfter(end)) return 0;
     var cached = bars(symbol, DateRangeRequest.builder().start(start).end(end).build());
     String source = cached.isEmpty() ? null : String.valueOf(cached.getFirst().getSource());
     var expectedCached =
@@ -460,15 +481,15 @@ public class MarketServiceImpl implements MarketService {
     try {
       window = provider.fetchWindow(symbol, start, end, "INDEX".equals(i.getType()));
     } catch (RuntimeException e) {
-      if (e instanceof com.alphascope.common.task.TaskStoppedException stopped) throw stopped;
+      if (e instanceof TaskStoppedException stopped) throw stopped;
       var actual =
           cached.stream()
               .map(MarketBarDO::getTradeDate)
               .collect(java.util.stream.Collectors.toSet());
       var missing = expectedCached.stream().filter(day -> !actual.contains(day)).sorted().toList();
       var summary =
-          com.alphascope.market.provider.MarketFailureSummary.describe(
-              com.alphascope.market.provider.MarketFailureSummary.Evidence.builder()
+          MarketFailureSummary.describe(
+              MarketFailureSummary.Evidence.builder()
                   .symbol(symbol)
                   .name(i.getName())
                   .latestDate(
@@ -479,9 +500,7 @@ public class MarketServiceImpl implements MarketService {
                   .missingDates(missing)
                   .diagnostic(FailureDiagnostics.from(e))
                   .build());
-      var failure =
-          new com.alphascope.common.exception.BusinessException(
-              com.alphascope.common.response.ResultCode.DATA_UNAVAILABLE, 503, summary);
+      var failure = new BusinessException(ResultCode.DATA_UNAVAILABLE, 503, summary);
       failure.initCause(e);
       throw failure;
     }

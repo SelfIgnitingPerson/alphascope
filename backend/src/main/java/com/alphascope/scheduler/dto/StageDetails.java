@@ -1,5 +1,6 @@
 package com.alphascope.scheduler.dto;
 
+import com.alphascope.common.diagnostic.FailureDiagnosis;
 import com.alphascope.common.task.ExecutionProgress;
 import java.time.Instant;
 
@@ -20,7 +21,7 @@ public record StageDetails(
     /** FRESH_RUN或REVALIDATE_STORED_INPUTS；恢复不盲目跳过输入核验。 */
     String recoveryMode,
     /** 失败时冻结的公开诊断，旧记录及成功阶段可为空。 */
-    com.alphascope.common.diagnostic.FailureDiagnosis diagnostic) {
+    FailureDiagnosis diagnostic) {
   /** 兼容不含诊断的旧阶段构造入口，缺项不补推为已知原因。 */
   public StageDetails(
       StageQuality quality,

@@ -34,6 +34,8 @@ MYSQL_PASSWORD=replace_with_random_password
 
 已有 `.env` 保留，只修改数据库连接项。正常运行不需要管理员密码或 `MYSQL_ROOT_PASSWORD`。如使用 `SPRING_DATASOURCE_URL`、`SPRING_DATASOURCE_USERNAME`、`SPRING_DATASOURCE_PASSWORD` 完整配置，它们分别优先于上述别名；维护CLI使用相同优先级。
 
+首次空库需先安装结构：在本机配置一次性管理员变量 `MYSQL_MIGRATION_USER` / `MYSQL_MIGRATION_PASSWORD`（或已有 `LOCAL_MYSQL_ADMIN_*`），运行 `bash scripts/tools.sh install-schema`，再以专用应用账号启动。该连接负责预算触发器DDL，不放宽MySQL全局选项，不把管理员账号设为应用账号。已有开发库按[数据库入口](../../database/README.md)受控同步，不能重放V1。
+
 从项目根目录启动：
 
 ```bash
@@ -58,14 +60,11 @@ npm --prefix frontend run dev
 
 回退也必须先暂停应用并核对新库有无新增数据；不能直接开启旧容器后继续写入已落后的副本。原库保留不等于切换后的持续备份。
 
-## 当前本机切换记录
-
-2026-11-13已由 Docker MySQL 8.0.40 切换到本机 MySQL 8.0.42，地址 `127.0.0.1:3306`，数据库及运行账号均为 `alphascope`。42张表、69,488条记录的完整结构及精确语义内容通过核验；冻结输入的数值表示差异已按源库值恢复。已有39份报告、5只自选保留，报告#39的接口内容与切换前一致。
-
-迁移通过管道传输，没有生成额外SQL备份文件；临时本机管理员密码已从 `.env` 清除。原 `alphascope-mysql-1` 停止且数据卷保留。证据只在本机 `.runtime/implementation/local-mysql/`，不进入源码包。后续新增数据以本机库为准，不维护两套并行业务库。
 
 ## Docker 的保留用途
 
 根目录 `docker-compose.yml` 是可选开发数据库，默认发布到 `127.0.0.1:3307`，避免与本机3306冲突。选择容器时才配置 `MYSQL_ROOT_PASSWORD` 并显式将应用 `MYSQL_PORT` 改为3307；不要同时把两个不同数据实例当作同一业务库使用。
 
 普通 `bash scripts/verify.sh` 不要求 Docker。完整隔离数据库/浏览器回归、可选备份的隔离恢复核验及生产容器部署仍按各自手册使用 Docker；它们不意味着日常业务数据库仍在容器内。用户当前关闭自动备份，不会因此在正常运行中启动验证容器。
+
+结构维护凭据缺失时现在会在任何DDL之前明确停止，不再回退应用密码或使用容器数据库的MYSQL_ROOT_PASSWORD。需要管理连接时仅临时提供MYSQL_MIGRATION_USER/PASSWORD（或本机LOCAL_MYSQL_ADMIN_*）；日常Docker应用不接收这些变量。

@@ -8,9 +8,9 @@ import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 单份开发基线：验证空库安装、重复启动，以及保留现有业务数据的显式基线登记。
@@ -20,21 +20,20 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @Testcontainers
 @EnabledIfEnvironmentVariable(named = "RUN_CONTAINER_TESTS", matches = "true")
 class MySqlMigrationTest {
-  @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.40");
+  @Container static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.0.40");
 
   @Test
   void singleBaselineInitializesAndAdoptsExistingSchemaWithoutRewritingData() throws Exception {
     Flyway flyway =
         Flyway.configure()
-            .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
+            .dataSource(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword())
             .baselineVersion("1")
             .load();
     assertEquals(1, flyway.migrate().migrationsExecuted);
     flyway.validate();
     assertEquals(0, flyway.migrate().migrationsExecuted);
     try (var connection =
-            DriverManager.getConnection(
-                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+            DriverManager.getConnection(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
         var statement = connection.createStatement()) {
       for (var expected : Map.of("theme", 5, "instrument", 3, "watchlist", 2).entrySet())
         try (var rows = statement.executeQuery("SELECT COUNT(*) FROM " + expected.getKey())) {
@@ -45,7 +44,7 @@ class MySqlMigrationTest {
           statement.executeQuery(
               "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name<>'flyway_schema_history'")) {
         rows.next();
-        assertEquals(41, rows.getInt(1));
+        assertEquals(46, rows.getInt(1));
       }
       // 两个来源的同日行情、同源高精度因子，以及覆盖大JSON查询的最终索引直接存在于基线。
       try (var rows =
@@ -87,8 +86,7 @@ class MySqlMigrationTest {
     flyway.validate();
     assertEquals(0, flyway.migrate().migrationsExecuted);
     try (var connection =
-            DriverManager.getConnection(
-                MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+            DriverManager.getConnection(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
         var statement = connection.createStatement()) {
       try (var rows = statement.executeQuery("SELECT type,version FROM flyway_schema_history")) {
         assertTrue(rows.next());

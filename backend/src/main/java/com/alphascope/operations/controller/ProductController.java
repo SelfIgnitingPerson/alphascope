@@ -2,6 +2,7 @@ package com.alphascope.operations.controller;
 
 import com.alphascope.common.response.Result;
 import com.alphascope.operations.dto.SourceLicenseInput;
+import com.alphascope.operations.policy.OperationalData;
 import com.alphascope.operations.service.ProductStatusService;
 import com.alphascope.operations.service.SourceLicenseService;
 import com.alphascope.operations.vo.ProductStatusView;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 public class ProductController {
   private final ProductStatusService status;

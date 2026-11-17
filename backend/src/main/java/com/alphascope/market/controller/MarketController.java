@@ -2,12 +2,15 @@ package com.alphascope.market.controller;
 
 import com.alphascope.common.dto.DateRangeRequest;
 import com.alphascope.common.response.Result;
+import com.alphascope.market.service.FullMarketService;
 import com.alphascope.market.service.ScoreService;
 import com.alphascope.market.service.UniverseCoverageService;
+import com.alphascope.market.vo.MarketObservation;
 import com.alphascope.market.vo.MarketOverviewView;
 import com.alphascope.market.vo.MarketScoreView;
 import com.alphascope.market.vo.ScopedScoreView;
 import com.alphascope.market.vo.UniverseCoverageView;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/market")
 public class MarketController {
@@ -33,6 +37,19 @@ public class MarketController {
   public MarketController(ScoreService service, UniverseCoverageService coverage) {
     this.service = service;
     this.coverage = coverage;
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
+
+  /**
+   * 精确读取三所观察，不采集、不使用沪深代理替代。
+   *
+   * @param date 业务日期
+   * @return 全A观察或空
+   */
+  @GetMapping("/full-observation")
+  public Result<MarketObservation> full(@RequestParam LocalDate date) {
+    return Result.success(fullMarket.observation(date));
   }
 
   /**

@@ -18,6 +18,7 @@ export interface UniverseCoverage {
   source?: string;
   snapshotId?: number;
   sourceUrl?: string;
+  bseRoster?: import('./universe').MarketUniverse | null;
 }
 /** 一项市场评分对未来收益的配对检验。 */
 export interface MarketValidationResult {
@@ -59,6 +60,7 @@ export interface ValidationSummary {
     savedPointInTimeStatus: string;
     reconstructed?: BacktestResult | null;
     failure?: string | null;
+    strategy?: StrategySimulation | null;
   }[];
   blockers: string[];
   limitations: string[];
@@ -88,4 +90,25 @@ export interface ValidationTask {
   deadlineAt?: string | null;
   evidenceSha256?: string | null;
   summary?: ValidationSummary | null;
+}
+
+/** 新验证任务冻结的保守组合模拟；旧任务不补写。 */
+export interface StrategySimulation {
+  version: string;
+  parameters: Record<string, number>;
+  limitations: string[];
+  periods: {
+    label: string;
+    start: string;
+    end: string;
+    status: string;
+    completedTrades: number;
+    skippedOrders: number;
+    netReturn: number | null;
+    maximumDrawdown: number | null;
+    benchmarkReturn: number | null;
+    fees: number;
+    openPosition: boolean;
+    reason: string;
+  }[];
 }

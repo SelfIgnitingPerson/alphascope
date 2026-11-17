@@ -5,6 +5,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.industry.service.IndustryService;
 import com.alphascope.industry.vo.ThemeStrengthView;
 import com.alphascope.industry.vo.ThemeView;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/themes")
 public class IndustryController {

@@ -21,13 +21,23 @@ public record InstrumentView(
     String type,
 
     /** 主数据是否启用；不等同于当日是否交易。 */
-    boolean active) {
+    boolean active,
+    /** 经来源核验的上市日；空表示仍待核实。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.time.LocalDate listedAt,
+    /** 已确认退市日；空不据此推断交易状态。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.time.LocalDate delistedAt) {
   public static InstrumentView from(Instrument instrument) {
     return new InstrumentView(
         instrument.getSymbol(),
         instrument.getName(),
         instrument.getExchange(),
         instrument.getType(),
-        instrument.getActive());
+        instrument.getActive(),
+        instrument.getListedAt(),
+        instrument.getDelistedAt());
   }
 }

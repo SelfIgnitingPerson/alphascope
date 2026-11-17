@@ -11,6 +11,7 @@ import com.alphascope.intelligence.service.HoldingResearchService;
 import com.alphascope.intelligence.vo.HoldingResearchView;
 import com.alphascope.market.dto.TradingDatesQuery;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.operations.policy.SourceEvidence;
 import com.alphascope.operations.service.SourceLicenseService;
 import com.alphascope.signal.service.SignalService;
 import java.time.LocalDate;
@@ -50,7 +51,6 @@ public class HoldingResearchServiceImpl implements HoldingResearchService {
         || date.isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")))) {
       throw new IllegalArgumentException("研究日期须在1990年至上海当前日期之间");
     }
-    licenses.requireAll("DERIVED_REPORT");
     var instrument = market.instrument(symbol);
     var history =
         market.bars(symbol, DateRangeRequest.builder().start(date.minusYears(2)).end(date).build());
@@ -81,12 +81,16 @@ public class HoldingResearchServiceImpl implements HoldingResearchService {
             .expectedTradingDates(
                 expected.stream().filter(d -> !d.isBefore(date.minusMonths(2))).sorted().toList())
             .build();
-    return HoldingResearchCalculator.calculate(
+    var input =
         HoldingResearchInput.builder()
             .stock(stock)
             .asOf(date)
             .expectedDates(expected)
             .synthetic(market.synthetic())
-            .build());
+            .build();
+    licenses.requireEvidence(input, "DERIVED_REPORT");
+    return HoldingResearchCalculator.calculate(input).toBuilder()
+        .inputSources(SourceEvidence.inspect(input).sources())
+        .build();
   }
 }

@@ -2,7 +2,11 @@ server:
   address: 127.0.0.1
   port: 8080
 spring:
-  jackson:
+  # 历史报告与验证证据仍遵循原JSON编码；模型及OpenAPI可使用Jackson 3。
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+  jackson2:
     time-zone: Asia/Shanghai
     serialization:
       write-dates-as-timestamps: false

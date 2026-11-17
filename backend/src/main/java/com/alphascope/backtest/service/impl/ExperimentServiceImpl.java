@@ -17,6 +17,7 @@ import com.alphascope.common.response.PageResponse;
 import com.alphascope.common.util.JsonFingerprint;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.operations.policy.SourceEvidence;
 import com.alphascope.signal.service.SignalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -120,7 +121,13 @@ public class ExperimentServiceImpl implements ExperimentService {
     var result = SignalEvaluationCalculator.evaluate(snapshot.input());
     String actual = JsonFingerprint.hash(Jsons.write(result));
     return new ExperimentReplayView(
-        id, true, row.getResultHash().equals(actual), row.getResultHash(), actual, result);
+        id,
+        true,
+        row.getResultHash().equals(actual),
+        row.getResultHash(),
+        actual,
+        result,
+        SourceEvidence.inspect(snapshot).sources());
   }
 
   private ValidationExperiment checked(long id) {

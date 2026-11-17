@@ -10,7 +10,9 @@ import com.alphascope.market.provider.MarketDataProvider;
 import com.alphascope.market.provider.MultiChannelMarketDataProvider;
 import com.alphascope.market.provider.SinaMarketDataProvider;
 import com.alphascope.market.provider.TushareMarketDataProvider;
+import com.alphascope.market.provider.baostock.BaoStockAccessGuard;
 import com.alphascope.market.provider.baostock.BaoStockClient;
+import com.alphascope.market.provider.baostock.BaoStockRequestPolicy;
 import com.alphascope.market.provider.research.BaoStockResearchProvider;
 import com.alphascope.market.provider.research.EastmoneyResearchProvider;
 import com.alphascope.market.provider.research.ResearchDataProvider;
@@ -133,8 +135,7 @@ public class MarketProviderConfig {
             properties.getMarket().getBaostockHost(),
             properties.getMarket().getBaostockPort(),
             15000,
-            com.alphascope.market.provider.baostock.BaoStockAccessGuard.standard(),
-            com.alphascope.market.provider.baostock.BaoStockRequestPolicy.standard(
-                properties.getMarket().getBaostockDailyBudget())));
+            BaoStockAccessGuard.standard(),
+            BaoStockRequestPolicy.standard(properties.getMarket().getBaostockDailyBudget())));
   }
 }

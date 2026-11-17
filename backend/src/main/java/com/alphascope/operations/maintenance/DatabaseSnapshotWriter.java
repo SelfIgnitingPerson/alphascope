@@ -130,6 +130,12 @@ final class DatabaseSnapshotWriter {
               "auth_session",
               "auth_event",
               "source_license",
+              "storage_budget",
+              "research_plan",
+              "research_plan_review",
+              "job_attempt_history",
+              "theme_leader_revision",
+              "market_universe_snapshot",
               "service_alert")
           .containsAll(additional)) {
         throw new IllegalStateException("出现未授权的新表");

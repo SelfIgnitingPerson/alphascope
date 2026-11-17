@@ -50,7 +50,7 @@
   </select>
 
   <select id="scheduledAttempts" resultType="long">
-    SELECT COUNT(*) FROM job_execution
+    SELECT COUNT(*)+(SELECT COUNT(*) FROM job_attempt_history h JOIN job_execution j ON j.id=h.job_id AND j.tenant_id=h.tenant_id WHERE j.job_name=#{jobName} AND j.business_date=#{businessDate} AND JSON_UNQUOTE(JSON_EXTRACT(h.execution_json,'$.data_scope'))=#{dataScope}) FROM job_execution
     WHERE job_name=#{jobName} AND business_date=#{businessDate} AND data_scope=#{dataScope}
   </select>
 
@@ -71,8 +71,8 @@
   <insert id="start" useGeneratedKeys="true" keyProperty="id">
     <![CDATA[
     INSERT INTO job_execution(job_name, business_date, attempt, status, started_at, data_scope, input_hash,
-      retry_of)
-    VALUES(#{jobName}, #{businessDate}, #{attempt}, 'PENDING', CURRENT_TIMESTAMP, #{dataScope}, #{inputHash}, #{retryOf})
+      retry_of,reservation_bytes)
+    VALUES(#{jobName}, #{businessDate}, #{attempt}, 'PENDING', CURRENT_TIMESTAMP, #{dataScope}, #{inputHash}, #{retryOf},#{reservationBytes})
     ]]>
   </insert>
 
@@ -139,10 +139,11 @@
 
   <select id="pending" resultType="java.lang.Long">
     <![CDATA[
-    SELECT id FROM job_execution WHERE status='PENDING' ORDER BY id LIMIT 1
+    SELECT id FROM job_execution WHERE status='PENDING' AND job_name IN ('DAILY','WEEKLY') ORDER BY id LIMIT 1
     ]]>
   </select>
 
+  <select id="pendingShared" resultType="java.lang.Long">SELECT id FROM job_execution WHERE status='PENDING' AND job_name IN ('MARKET_HISTORY','MARKET_UNIVERSE','MARKET_FULL') ORDER BY CASE job_name WHEN 'MARKET_UNIVERSE' THEN 0 ELSE 1 END,id LIMIT 1</select>
   <update id="claim">
     <![CDATA[
     UPDATE job_execution
@@ -188,19 +189,12 @@
     WHERE job_id=#{jobId} AND status='RUNNING'
   </update>
 
-  <select id="count" resultType="long">
-    <![CDATA[
-    SELECT COUNT(*) FROM job_execution
-    ]]>
-  </select>
-
-  <select id="page" resultType="com.alphascope.scheduler.entity.JobExecution">
-    SELECT
-    <include refid="executionColumns"/>
-    <![CDATA[
-    FROM job_execution ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
-    ]]>
-  </select>
+  <sql id="listFilters"><where>
+    NOT EXISTS(SELECT 1 FROM job_execution child WHERE child.retry_of=job_execution.id AND child.tenant_id=job_execution.tenant_id)
+    <if test="type != null">AND job_name=#{type}</if>
+  </where></sql>
+  <select id="count" resultType="long">SELECT COUNT(*) FROM job_execution <include refid="listFilters"/></select>
+  <select id="page" resultType="com.alphascope.scheduler.entity.JobExecution">SELECT <include refid="executionColumns"/> FROM job_execution <include refid="listFilters"/> ORDER BY id DESC LIMIT #{size} OFFSET #{offset}</select>
   <update id="complete" parameterType="com.alphascope.scheduler.dto.JobCompletion">
     UPDATE job_execution SET status=#{status}, data_status=#{dataStatus}, error=#{error}, ended_at=CURRENT_TIMESTAMP(6)
     WHERE id=#{jobId} AND owner_id=#{ownerId}
@@ -225,4 +219,10 @@
     UPDATE job_stage SET details_json=#{detailsJson}
     WHERE job_id=#{jobId} AND stage_name=#{stageName} AND status='RUNNING'
   </update>
+  <select id="lockRow" resultType="long">SELECT id FROM job_execution WHERE id=#{id} FOR UPDATE</select>
+  <insert id="archiveAttempt">INSERT INTO job_attempt_history(job_id,attempt,execution_json,content_hash) VALUES(#{jobId},#{attempt},#{executionJson},#{contentHash})</insert>
+  <delete id="clearStages">DELETE FROM job_stage WHERE job_id=#{id}</delete>
+  <update id="requeue">UPDATE job_execution SET status='PENDING',attempt=#{attempt},data_scope=#{dataScope},input_hash=#{inputHash},reservation_bytes=#{reservationBytes},started_at=NULL,ended_at=NULL,heartbeat_at=NULL,owner_id=NULL,error=NULL,data_status=NULL WHERE id=#{id} AND status IN ('FAILED','INTERRUPTED','CANCELLED','TIMED_OUT')</update>
+  <select id="attempts" resultType="com.alphascope.scheduler.entity.JobAttemptHistory">SELECT job_id,attempt,execution_json,content_hash FROM job_attempt_history WHERE job_id=#{id} ORDER BY id DESC LIMIT #{size} OFFSET #{offset}</select>
+  <select id="attemptCount" resultType="long">SELECT COUNT(*) FROM job_attempt_history WHERE job_id=#{id}</select>
 </mapper>

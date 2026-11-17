@@ -39,13 +39,11 @@ public interface SourceLicenseService {
    */
   void require(String source, String permission);
 
-  /** 检查当前配置公共数据的展示准入，不检查用户身份。 */
-  void requireDisplay();
-
   /**
-   * 检查当前启用来源的指定使用范围，不能将展示许可默认为导出许可。
+   * 检查实际响应或冻结输入的来源用途；未知来源的真实数值拒绝发布。
    *
-   * @param permission 明确的使用范围代码
+   * @param evidence 本次真实证据，不是配置通道集合
+   * @param permission DISPLAY、DERIVED_REPORT或EXPORT
    */
-  void requireAll(String permission);
+  void requireEvidence(Object evidence, String permission);
 }

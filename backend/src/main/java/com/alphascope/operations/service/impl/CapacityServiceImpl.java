@@ -35,7 +35,7 @@ public class CapacityServiceImpl implements CapacityService {
   /** {@inheritDoc} */
   @Override
   public ResearchCapacity status() {
-    return mapper.capacity();
+    return mapper.capacity(TenantContext.id());
   }
 
   /** {@inheritDoc} */

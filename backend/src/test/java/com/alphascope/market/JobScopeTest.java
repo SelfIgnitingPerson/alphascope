@@ -207,7 +207,8 @@ class JobScopeTest {
             inputs,
             snapshots,
             control,
-            mock(StageQualityInspector.class));
+            mock(StageQualityInspector.class),
+            mock(com.alphascope.market.service.MarketUniverseService.class));
     return new JobServiceImpl(mapper, factory, market, snapshots, pipeline, control);
   }
 

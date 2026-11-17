@@ -46,6 +46,25 @@ public record DatabaseConnectionSettings(
         password);
   }
 
+  /**
+   * 一次性结构维护只读取明确提供的管理凭据，缺少时在任何DDL前停止。
+   *
+   * @param environment 本机或迁移容器变量
+   * @return 独立维护连接，不回退应用密码
+   */
+  public static DatabaseConnectionSettings forMigration(Map<String, String> environment) {
+    var application = fromEnvironment(environment);
+    String password = environment.getOrDefault("MYSQL_MIGRATION_PASSWORD", "");
+    if (password.isBlank()) password = environment.getOrDefault("LOCAL_MYSQL_ADMIN_PASSWORD", "");
+    if (password.isBlank())
+      throw new IllegalStateException(
+          "尚未配置一次性数据库管理连接；请在本机配置MYSQL_MIGRATION_USER/PASSWORD或LOCAL_MYSQL_ADMIN_USER/PASSWORD，再执行结构维护。未执行DDL，不会使用应用密码代替。");
+    String username = environment.getOrDefault("MYSQL_MIGRATION_USER", "");
+    if (username.isBlank()) username = environment.getOrDefault("LOCAL_MYSQL_ADMIN_USER", "root");
+    if (username.isBlank()) username = "root";
+    return new DatabaseConnectionSettings(application.url(), username, password);
+  }
+
   /** 缺省使用统一默认值，已经显式设置的值不擅自替换。 */
   private static String value(Map<String, String> environment, String key, String fallback) {
     return environment.getOrDefault(key, fallback);

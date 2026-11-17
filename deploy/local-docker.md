@@ -48,3 +48,19 @@ bash scripts/run-docker.sh up
 | 行情仍提示访问受限 | 容器化不恢复供应商权限；既有错误码与冷却时间继续有效 |
 
 官方原理：[Docker Desktop访问宿主机](https://docs.docker.com/desktop/features/networking/networking-how-tos/)、[Compose网络命名空间](https://docs.docker.com/compose/how-tos/networking/)。
+
+## 镜像切换与回滚
+
+`up`和`build`在覆盖当前标签前，会把当前实际运行容器的镜像保留为`alphascope:rollback`。这是一个运行产物，不是第二套源码或SQL。使用容器实际镜像而非可移动的最新标签，避免构建后找不到原版本。
+
+`start`使用`--no-build --pull never`，镜像不存在时直接报错，不隐式联网重建；显式传入的镜像引用优先于.env。核对没有正在执行的新版本专有任务后，可以运行：
+
+```bash
+ALPHASCOPE_IMAGE=alphascope:rollback bash scripts/run-docker.sh start
+```
+
+切回当前已构建版本：
+
+```bash
+ALPHASCOPE_IMAGE=alphascope:0.1.0 bash scripts/run-docker.sh start
+```

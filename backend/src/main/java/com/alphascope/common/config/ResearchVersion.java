@@ -8,9 +8,9 @@ package com.alphascope.common.config;
 public final class ResearchVersion {
   private ResearchVersion() {}
 
-  public static final String REPORT = "REPORT_V11";
+  public static final String REPORT = "REPORT_V12";
   public static final String ALGORITHM = "ADJ_V2/RULE_V2/" + REPORT;
-  public static final String PIPELINE = "PIPELINE_V14/" + ALGORITHM;
+  public static final String PIPELINE = "PIPELINE_V16/" + ALGORITHM;
   public static final String ANALYSIS =
       "FROZEN_FACTS_V8/LINKAGE_V1/ADVICE_V1/OBSERVATION_V1/STORED_HISTORY_V1/PRICE_VOLUME_2M_V3/POSITION_RESEARCH_V1";
 }

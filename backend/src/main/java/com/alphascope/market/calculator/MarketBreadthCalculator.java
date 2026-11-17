@@ -22,11 +22,41 @@ public final class MarketBreadthCalculator {
     return code != null && code.matches("sh\\.6[0-9]{5}|sz\\.(?:00|30)[0-9]{4}");
   }
 
+  /**
+   * 按明确范围识别A股，不能由是否存在北交所报价推断清单完整。
+   *
+   * @param code 供应商代码
+   * @param scope 明确范围
+   * @return 是否属于该范围
+   */
+  public static boolean stock(String code, String scope) {
+    return stock(code)
+        || "FULL_A".equals(scope) && code != null && code.matches("bj\\.[489][0-9]{5}");
+  }
+
   public static MarketBreadthView calculate(
       LocalDate date, List<Map<String, String>> universe, List<Map<String, String>> rows) {
+    return calculateScope(date, universe, rows, "SH_SZ_A");
+  }
+
+  /**
+   * 核对明确范围的真实清单及价格。
+   *
+   * @param date 业务日期
+   * @param universe 完整清单
+   * @param rows 原价记录
+   * @param scope SH_SZ_A或FULL_A
+   * @return 实际覆盖指标
+   */
+  public static MarketBreadthView calculateScope(
+      LocalDate date,
+      List<Map<String, String>> universe,
+      List<Map<String, String>> rows,
+      String scope) {
+    if (!Set.of("SH_SZ_A", "FULL_A").contains(scope)) throw new IllegalArgumentException("市场范围无效");
     Map<String, String> expected = new TreeMap<>();
     for (var r : universe) {
-      if (stock(r.get("code"))) {
+      if (stock(r.get("code"), scope)) {
         String status = r.get("tradeStatus");
         if (!Set.of("0", "1", "UNKNOWN").contains(status == null ? "" : status)) {
           throw new IllegalArgumentException("UNKNOWN_UNIVERSE_STATUS");
@@ -44,7 +74,7 @@ public final class MarketBreadthCalculator {
     Set<String> seen = new HashSet<>();
     for (var r : rows) {
       String code = r.get("code");
-      if (!stock(code)) {
+      if (!stock(code, scope)) {
         continue;
       }
       if (!date.toString().equals(r.get("date"))
@@ -92,7 +122,7 @@ public final class MarketBreadthCalculator {
     suspended += confirmedAbsentSuspended;
     var result = new MarketBreadthView();
     result.setBusinessDate(date);
-    result.setUniverseScope("SH_SZ_A");
+    result.setUniverseScope(scope);
     result.setSource("BAOSTOCK");
     result.setStatus(missing.isEmpty() ? "COMPLETE" : "PARTIAL");
     result.setExpected(expected.size());
@@ -107,7 +137,9 @@ public final class MarketBreadthCalculator {
     result.setMissingSymbols(missing.stream().limit(30).toList());
     result.setLimitations(
         List.of(
-            "仅沪深A股，不含北交所；按供应商当日证券清单核对覆盖率",
+            scope.equals("FULL_A")
+                ? "包含沪深北三所，按经核验供应商清单计算，历史窗口仍需独立核验"
+                : "仅沪深A股，不含北交所；按供应商当日证券清单核对覆盖率",
             "涨跌采用同日未复权收盘与供应商前收盘，停牌不计入涨跌家数",
             "尚无全市场MA20/MA60广度、新低家数及成交额5/20日均值"));
     return result;

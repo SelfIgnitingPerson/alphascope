@@ -7,6 +7,7 @@ import com.alphascope.backtest.vo.ExperimentView;
 import com.alphascope.common.dto.PageRequest;
 import com.alphascope.common.response.PageResponse;
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class ExperimentController {
   private final ExperimentService service;

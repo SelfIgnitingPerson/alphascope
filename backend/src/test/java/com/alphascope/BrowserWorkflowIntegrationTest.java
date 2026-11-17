@@ -34,9 +34,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 真正Chrome、Vite、Spring和隔离MySQL的完整用户流程；不连接用户业务库或真实上游。
@@ -68,8 +68,8 @@ class BrowserWorkflowIntegrationTest {
   }
 
   @Container
-  static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>("mysql:8.0.40").withDatabaseName("alphascope_browser_fixture");
+  static final MySQLContainer MYSQL =
+      new MySQLContainer("mysql:8.0.40").withDatabaseName("alphascope_browser_fixture");
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry properties) {
@@ -77,6 +77,8 @@ class BrowserWorkflowIntegrationTest {
     properties.add("spring.datasource.url", MYSQL::getJdbcUrl);
     properties.add("spring.datasource.username", MYSQL::getUsername);
     properties.add("spring.datasource.password", MYSQL::getPassword);
+    properties.add("spring.flyway.user", () -> "root");
+    properties.add("spring.flyway.password", MYSQL::getPassword);
   }
 
   @LocalServerPort int port;

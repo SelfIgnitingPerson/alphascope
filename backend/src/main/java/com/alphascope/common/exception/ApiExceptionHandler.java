@@ -75,6 +75,16 @@ public class ApiExceptionHandler {
     return error(404, ResultCode.NOT_FOUND, "接口不存在", r);
   }
 
+  @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+  ResponseEntity<Result<Void>> database(
+      org.springframework.dao.DataAccessException e, HttpServletRequest r) {
+    for (Throwable reason = e; reason != null; reason = reason.getCause())
+      if (reason.getMessage() != null && reason.getMessage().contains("ALPHASCOPE_STORAGE_"))
+        return error(
+            507, ResultCode.CAPACITY_EXCEEDED, "证据使用与活动任务预留已达到预算，暂停新增；既有研究保留，请管理员核对平台及个人额度", r);
+    return internal(e, r);
+  }
+
   @ExceptionHandler(Exception.class)
   ResponseEntity<Result<Void>> internal(Exception e, HttpServletRequest r) {
     LOGGER.error("requestId={} 请求失败", r.getAttribute("requestId"), e);

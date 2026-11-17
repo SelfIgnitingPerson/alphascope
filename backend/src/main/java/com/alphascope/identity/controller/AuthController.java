@@ -9,6 +9,7 @@ import com.alphascope.identity.dto.RegistrationInput;
 import com.alphascope.identity.service.AuthService;
 import com.alphascope.identity.vo.AuthStatusView;
 import com.alphascope.identity.vo.UserView;
+import com.alphascope.operations.policy.OperationalData;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {

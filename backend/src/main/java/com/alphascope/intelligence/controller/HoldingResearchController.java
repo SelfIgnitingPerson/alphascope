@@ -4,6 +4,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.intelligence.dto.HoldingResearchQuery;
 import com.alphascope.intelligence.service.HoldingResearchService;
 import com.alphascope.intelligence.vo.HoldingResearchView;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class HoldingResearchController {
   private final HoldingResearchService service;

@@ -1,6 +1,7 @@
 package com.alphascope.portfolio.controller;
 
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.OperationalData;
 import com.alphascope.portfolio.dto.WatchlistInput;
 import com.alphascope.portfolio.service.PortfolioService;
 import com.alphascope.portfolio.vo.WatchlistView;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/watchlist")
 public class WatchlistController {

@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 public class ResearchValidationTask {
+  /** 活动验证的最大正文预留，终态由数据库原子释放。 */
+  private long reservationBytes;
+
   /** 验证任务主键，自增生成。 */
   private Long id;
 

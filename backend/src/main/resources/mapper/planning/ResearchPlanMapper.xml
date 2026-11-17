@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.planning.mapper.ResearchPlanMapper">
+ <sql id="columns">id, symbol, horizon, action_code, snapshot_json, snapshot_hash, archived, created_at</sql>
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+ INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES(#{symbol},#{horizon},#{actionCode},#{snapshotJson},#{snapshotHash})
+ </insert>
+ <sql id="filters">
+ <where><if test="symbol != null">symbol=#{symbol}</if><if test="horizon != null">AND horizon=#{horizon}</if><if test="archived != null">AND archived=#{archived}</if></where>
+ </sql>
+ <select id="page" resultType="com.alphascope.planning.vo.PlanSummary">
+ SELECT id,symbol,JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.name')) AS name,horizon,action_code,archived,created_at,
+ CAST(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.asOf')) AS DATE) AS as_of
+ FROM research_plan <include refid="filters"/> ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
+ </select>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM research_plan <include refid="filters"/></select>
+ <select id="get" resultType="com.alphascope.planning.entity.ResearchPlan">SELECT <include refid="columns"/> FROM research_plan WHERE id=#{id}</select>
+ <update id="archive">UPDATE research_plan SET archived=1 WHERE id=#{id}</update>
+ <insert id="review" useGeneratedKeys="true" keyProperty="id">INSERT INTO research_plan_review(plan_id,review_json,review_hash) VALUES(#{planId},#{reviewJson},#{reviewHash})</insert>
+ <select id="reviews" resultType="com.alphascope.planning.entity.PlanReview">SELECT id,plan_id,review_json,review_hash,created_at FROM research_plan_review WHERE plan_id=#{planId} ORDER BY id DESC LIMIT #{size} OFFSET #{offset}</select>
+ <select id="reviewCount" resultType="long">SELECT COUNT(*) FROM research_plan_review WHERE plan_id=#{id}</select>
+ <select id="lockUser" resultType="java.lang.Long">SELECT id FROM app_user WHERE id=#{id} FOR UPDATE</select>
+ <select id="evidenceCount" resultType="long">SELECT (SELECT COUNT(*) FROM research_plan)+(SELECT COUNT(*) FROM research_plan_review)</select>
+</mapper>

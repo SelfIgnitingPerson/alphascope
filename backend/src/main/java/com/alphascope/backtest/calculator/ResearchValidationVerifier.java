@@ -56,6 +56,15 @@ public final class ResearchValidationVerifier {
           Jsons.write(SignalEvaluationCalculator.evaluate(generated.evaluation())),
           replay.resultSha256(),
           "统计重建");
+      if (replay.strategy() != null) {
+        require(
+            StrategyReplayCalculator.VERSION.equals(replay.strategy().version()), "不支持的策略执行扩展版本");
+        hash(Jsons.write(replay.strategy()), replay.strategySha256(), "策略结果");
+        hash(
+            Jsons.write(StrategyReplayCalculator.evaluate(input)),
+            replay.strategySha256(),
+            "策略执行复算");
+      }
       stocks++;
     }
     return new ValidationVerification(true, windows, stocks, TechnicalEvidenceCalculator.VERSION);

@@ -146,7 +146,7 @@ class ViewMappingContractTest {
   private Object sample(Class<?> type, String name) {
     int seed = Math.floorMod(name.hashCode(), 500) + 1;
     if (type == String.class) return name + "_公开字段";
-    if (type == Long.class) return (long) seed;
+    if ((type == Long.class || type == long.class)) return (long) seed;
     if (type == Integer.class) return seed;
     if (type == Boolean.class) return Boolean.TRUE;
     if (type == BigDecimal.class) return BigDecimal.valueOf(seed, 2);

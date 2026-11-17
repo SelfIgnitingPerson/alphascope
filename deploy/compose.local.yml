@@ -2,7 +2,7 @@
 name: alphascope-local
 services:
   app:
-    image: alphascope:0.1.0
+    image: ${ALPHASCOPE_IMAGE:-alphascope:0.1.0}
     build: { context: .., dockerfile: Dockerfile }
     # 与本机用户一致，保留 .runtime 中既有的访问保护与文件权限。
     user: "${ALPHASCOPE_LOCAL_UID:?请通过 scripts/run-docker.sh 启动}:${ALPHASCOPE_LOCAL_GID:?请通过 scripts/run-docker.sh 启动}"

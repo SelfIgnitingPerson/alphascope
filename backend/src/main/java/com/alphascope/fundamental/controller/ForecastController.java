@@ -3,6 +3,7 @@ package com.alphascope.fundamental.controller;
 import com.alphascope.common.response.Result;
 import com.alphascope.fundamental.service.ForecastService;
 import com.alphascope.fundamental.vo.ForecastView;
+import com.alphascope.operations.policy.ResearchData;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/expectations")
 public class ForecastController {

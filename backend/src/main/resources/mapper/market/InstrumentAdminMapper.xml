@@ -7,4 +7,5 @@
     VALUES(#{symbol}, #{name}, #{exchange}, #{type}, #{listedAt}, 1)
     ]]>
   </insert>
+  <update id="lifecycle">UPDATE instrument SET listed_at=#{listedAt},delisted_at=#{delistedAt},lifecycle_source=#{source},lifecycle_observed_at=#{observedAt},lifecycle_evidence_json=#{evidenceJson},lifecycle_hash=SHA2(#{evidenceJson},256) WHERE symbol=#{symbol}</update>
 </mapper>

@@ -1,5 +1,6 @@
 package com.alphascope.market.calculator;
 
+import com.alphascope.market.dto.MarketObservationInput;
 import com.alphascope.market.vo.MarketObservation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -105,6 +106,26 @@ public final class MarketObservationCalculator {
       Map<String, NavigableMap<LocalDate, Double>> factors,
       JsonNode benchmark,
       Parameters p) {
+    return calculateScope(
+        new MarketObservationInput(date, calendar, snapshots, factors, benchmark, p, "SH_SZ_A"));
+  }
+
+  /**
+   * 用范围明确的输入计算分项，未知历史不补造。
+   *
+   * @param input 已核验输入
+   * @return 分项观察
+   */
+  public static MarketObservation calculateScope(MarketObservationInput input) {
+    var date = input.date();
+    var calendar = input.calendar();
+    var snapshots = input.snapshots();
+    var factors = input.factors();
+    var benchmark = input.benchmark();
+    var p = input.parameters();
+    var scope = input.scope();
+    if (!java.util.Set.of("SH_SZ_A", "FULL_A").contains(scope))
+      throw new IllegalArgumentException("市场范围无效");
     var dates = calendar.stream().filter(d -> !d.isAfter(date)).sorted().distinct().toList();
     JsonNode latest = snapshots.get(date);
     var metric = latest == null ? new ObjectMapper().createObjectNode() : latest.path("metrics");
@@ -156,14 +177,14 @@ public final class MarketObservationCalculator {
             r5,
             r20,
             complete,
-            "5/20日均值均包含业务日，要求连续20个实际交易日沪深截面完整；方向采用沪深300当日收益，放量下跌不视为利好。");
+            "5/20日均值均包含业务日，要求连续20个实际交易日目标范围截面完整；方向采用沪深300当日收益，放量下跌不视为利好。");
 
     int trading = metric.path("observed").asInt(), suspended = metric.path("suspended").asInt();
     Map<String, List<Double>> series = new HashMap<>();
     Set<String> current = new HashSet<>();
     if (latest != null) {
       for (var row : latest.path("raw").path("daily")) {
-        if (MarketBreadthCalculator.stock(row.path("code").asText())
+        if (MarketBreadthCalculator.stock(row.path("code").asText(), scope)
             && row.path("tradestatus").asText().equals("1")) {
           current.add(row.path("code").asText());
         }
@@ -258,7 +279,8 @@ public final class MarketObservationCalculator {
             coverage60,
             ratio60,
             advancing,
-            "分母为当日实际交易沪深A股；停牌单列。MA取最近20/60个有效交易收盘，同源后复权；历史/因子不足不填0，低覆盖不形成广度判断。");
+            (scope.equals("FULL_A") ? "分母为当日三所实际交易A股；" : "分母为当日实际交易沪深A股；")
+                + "停牌单列。MA取最近20/60个有效交易收盘，同源后复权；历史/因子不足不填0，低覆盖不形成广度判断。");
     String status =
         trend.status().equals("AVAILABLE")
                 && turnover.status().equals("AVAILABLE")
@@ -266,16 +288,16 @@ public final class MarketObservationCalculator {
             ? "AVAILABLE"
             : "PARTIAL";
     return new MarketObservation(
-        "SH_SZ_OBSERVATION_V1",
+        scope.equals("FULL_A") ? "FULL_A_OBSERVATION_V1" : "SH_SZ_OBSERVATION_V1",
         date,
-        "SH_SZ_A",
+        scope,
         status,
         trend,
         turnover,
         breadth,
         p.values(),
         List.of(
-            "不含北交所；独立沪深观察不替代完整全A五维评级。",
+            scope.equals("FULL_A") ? "三所同日观察；历史广度和五维总评级仍分别验收。" : "不含北交所；独立沪深观察不替代完整全A五维评级。",
             "分项阈值为研究观察线，未完成历史效果验证；不输出合成总分。",
             "免费历史行情为当前可获得版本，不构成严格时点回测；新股、长期停牌等可能缺少均线窗口。"));
   }

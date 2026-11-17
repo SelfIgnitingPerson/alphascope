@@ -19,6 +19,7 @@ import com.alphascope.industry.vo.CohortView;
 import com.alphascope.industry.vo.ThemeMemberView;
 import com.alphascope.industry.vo.ThemeScoreView;
 import com.alphascope.industry.vo.ThemeStrengthView;
+import com.alphascope.market.dto.MarketBarDO;
 import com.alphascope.market.dto.TradingDatesQuery;
 import com.alphascope.market.service.MarketService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -173,6 +174,7 @@ public class IndustryServiceImpl implements IndustryService {
       String code = theme.getCode();
       var members = selectedMembers(code, date);
       var cohort = selectedCohort(code, date);
+      var inputSources = new java.util.TreeSet<String>();
       int valid = 0, above = 0;
       double sumRs = 0, sumDayReturn = 0;
       for (var member : members) {
@@ -207,6 +209,10 @@ public class IndustryServiceImpl implements IndustryService {
         } else {
           continue;
         } // 无前一有效收盘，不能把未观察到的收益当作0计入均值。
+        recent.stream()
+            .map(MarketBarDO::getSource)
+            .filter(java.util.Objects::nonNull)
+            .forEach(inputSources::add);
         valid++;
         sumRs += snapshot.getRs20().doubleValue();
         if (bars.get(0).getClose().doubleValue() > snapshot.getMa20().doubleValue()) {
@@ -227,8 +233,8 @@ public class IndustryServiceImpl implements IndustryService {
           complete
               ? BigDecimal.valueOf(Math.max(0, Math.min(100, 50 + sumRs / valid * 200)))
               : null);
-      row.setEvidenceJson(
-          Jsons.write(
+      var themeEvidence =
+          new java.util.LinkedHashMap<String, Object>(
               Map.of(
                   "dataStatus",
                   complete ? "COMPLETE" : "INSUFFICIENT_DATA",
@@ -247,7 +253,9 @@ public class IndustryServiceImpl implements IndustryService {
                   "sourceDocumentId",
                   cohort == null ? 0 : cohort.getSourceDocumentId(),
                   "industryCoverage",
-                  "UNKNOWN")));
+                  "UNKNOWN"));
+      themeEvidence.put("inputSources", inputSources);
+      row.setEvidenceJson(Jsons.write(themeEvidence));
       mapper.save(row);
     }
   }

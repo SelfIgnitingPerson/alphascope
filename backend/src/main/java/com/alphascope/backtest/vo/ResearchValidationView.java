@@ -109,5 +109,38 @@ public record ResearchValidationView(
       /** 实际冻结的统计输出。 */
       BacktestView result,
       /** 规范序列化结果的SHA256。 */
-      String resultSha256) {}
+      String resultSha256,
+      /** 可选策略执行扩展；旧任务为空，不在读取时补算。 */
+      @com.fasterxml.jackson.annotation.JsonInclude(
+              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+          StrategySimulation strategy,
+      /** 策略输出文本指纹，方法版本包含在输出中。 */
+      @com.fasterxml.jackson.annotation.JsonInclude(
+              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+          String strategySha256) {
+    /** 兼容已有冻结任务构造，不追加尚未执行的策略扩展。 */
+    public Replay(
+        String origin,
+        String inputJson,
+        String inputSha256,
+        String indicatorJson,
+        String indicatorSha256,
+        String signalJson,
+        String signalSha256,
+        BacktestView result,
+        String resultSha256) {
+      this(
+          origin,
+          inputJson,
+          inputSha256,
+          indicatorJson,
+          indicatorSha256,
+          signalJson,
+          signalSha256,
+          result,
+          resultSha256,
+          null,
+          null);
+    }
+  }
 }

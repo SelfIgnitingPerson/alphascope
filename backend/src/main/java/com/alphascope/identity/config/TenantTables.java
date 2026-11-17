@@ -12,6 +12,8 @@ public final class TenantTables {
   public static final Set<String> PRIVATE =
       Set.of(
           "watchlist",
+          "research_plan",
+          "research_plan_review",
           "portfolio_account",
           "portfolio_position",
           "indicator_snapshot",
@@ -25,6 +27,7 @@ public final class TenantTables {
           "notification_log",
           "job_execution",
           "job_stage",
+          "job_attempt_history",
           "validation_experiment",
           "research_validation_task",
           "service_alert");
@@ -33,6 +36,7 @@ public final class TenantTables {
   public static final Set<String> SHARED =
       Set.of(
           "instrument",
+          "theme_leader_revision",
           "adjustment_factor",
           "daily_bar",
           "daily_bar_audit",
@@ -41,10 +45,10 @@ public final class TenantTables {
           "market_factor_snapshot",
           "trading_calendar",
           "market_breadth_snapshot",
+          "market_universe_snapshot",
           "market_observation_snapshot",
           "earnings_forecast_snapshot",
           "financial_report",
-          "valuation_snapshot",
           "research_collection",
           "theme",
           "theme_research_cohort",
@@ -55,7 +59,13 @@ public final class TenantTables {
 
   /** 身份及运维控制表通过专用Service校验，不接受用户指定范围。 */
   public static final Set<String> CONTROL =
-      Set.of("app_user", "auth_session", "auth_event", "source_license", "flyway_schema_history");
+      Set.of(
+          "app_user",
+          "auth_session",
+          "auth_event",
+          "source_license",
+          "storage_budget",
+          "flyway_schema_history");
 
   private TenantTables() {}
 }

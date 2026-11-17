@@ -1,6 +1,8 @@
 package com.alphascope.backtest.vo;
 
 import com.alphascope.backtest.entity.ValidationExperiment;
+import com.alphascope.common.util.Jsons;
+import com.alphascope.operations.policy.SourceEvidence;
 import java.time.LocalDateTime;
 
 /**
@@ -26,7 +28,11 @@ public record ExperimentView(
     /** 实际保存时刻，上海时区。 */
     LocalDateTime createdAt,
     /** 详情结果，列表不加载。 */
-    BacktestView result) {
+    BacktestView result,
+    /** 实际冻结输入来源，列表不加载；不能由当前通道配置推断。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.util.Set<String> inputSources) {
   /**
    * 显式转换元数据，不从当前数据库回填实验结果。
    *
@@ -44,6 +50,12 @@ public record ExperimentView(
         row.getInputHash(),
         row.getResultHash(),
         row.getCreatedAt(),
-        result);
+        result,
+        result == null
+            ? null
+            : SourceEvidence.inspect(
+                    Jsons.read(
+                        row.getSnapshotJson(), com.fasterxml.jackson.databind.JsonNode.class))
+                .sources());
   }
 }

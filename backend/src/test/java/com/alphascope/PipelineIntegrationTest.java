@@ -57,8 +57,8 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -66,9 +66,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 真实MySQL迁移与MyBatis集成测试；显式选择测试数据库后再启用，防止误写生产库。
@@ -84,14 +84,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class PipelineIntegrationTest {
   /** 使用一次性数据库，绝不把模拟测试数据写入用户当前的真实行情库。 */
   @Container
-  static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>("mysql:8.0.40").withCommand("--max-allowed-packet=64M");
+  static final MySQLContainer MYSQL =
+      new MySQLContainer("mysql:8.0.40").withCommand("--max-allowed-packet=64M");
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry properties) {
     properties.add("spring.datasource.url", MYSQL::getJdbcUrl);
     properties.add("spring.datasource.username", MYSQL::getUsername);
     properties.add("spring.datasource.password", MYSQL::getPassword);
+    properties.add("spring.flyway.user", () -> "root");
+    properties.add("spring.flyway.password", MYSQL::getPassword);
   }
 
   @Autowired MockMvc mvc;
@@ -120,6 +122,40 @@ class PipelineIntegrationTest {
   @Autowired SignalMapper signalMapper;
 
   /** 验证停止意图、进程归属和阶段质量在真实数据库中独立保存。 */
+  @Autowired com.alphascope.market.mapper.MarketMapper latestSourceMapper;
+
+  @Test
+  void latestSourceLookupStartsFromInstrumentAndRespectsDateModeAndTieBreak() {
+    jdbc.update(
+        "INSERT INTO instrument(symbol,name,exchange,type) VALUES('609999.SH','最新来源隔离测试','SH','STOCK')");
+    Long instrument =
+        jdbc.queryForObject("SELECT id FROM instrument WHERE symbol='609999.SH'", Long.class);
+    for (int mode = 0; mode <= 1; mode++) {
+      for (int day = 1; day <= 3; day++)
+        jdbc.update(
+            "INSERT INTO daily_bar(instrument_id,trade_date,open,high,low,close,volume,amount,source,fetched_at,batch_id,is_synthetic) VALUES(?, ?,10,11,9,10,100,1000,'FIRST','2026-10-30 10:00:00','first',?)",
+            instrument,
+            java.time.LocalDate.of(2026, 10, day),
+            mode);
+    }
+    jdbc.update(
+        "INSERT INTO daily_bar(instrument_id,trade_date,open,high,low,close,volume,amount,source,fetched_at,batch_id,is_synthetic) VALUES(?,'2026-10-03',10,11,9,10,100,1000,'SECOND','2026-10-30 10:00:00','second',0)",
+        instrument);
+    var real =
+        latestSourceMapper.latestSources(false).stream()
+            .filter(row -> row.getSymbol().equals("609999.SH"))
+            .findFirst()
+            .orElseThrow();
+    var demo =
+        latestSourceMapper.latestSources(true).stream()
+            .filter(row -> row.getSymbol().equals("609999.SH"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(java.time.LocalDate.of(2026, 10, 3), real.getTradeDate());
+    assertEquals("SECOND", real.getSource());
+    assertEquals("FIRST", demo.getSource());
+  }
+
   @Test
   void durableCancellationCannotBeOverwrittenByCompletion() {
     var row = new JobExecution();
@@ -712,7 +748,7 @@ class PipelineIntegrationTest {
   }
 
   @Test
-  void abandonedJobIsInterruptedAndRetryHasParent() {
+  void abandonedJobRetriesWithSameIdAndPreservesExecutionHistory() {
     jdbc.update(
         "INSERT INTO job_execution(job_name,business_date,attempt,status,started_at,data_scope,heartbeat_at,owner_id) VALUES('DAILY','2001-01-02',1,'RUNNING',DATE_SUB(NOW(),INTERVAL 10 MINUTE),'DEMO',DATE_SUB(NOW(),INTERVAL 10 MINUTE),'dead-worker')");
     long id = jdbc.queryForObject("SELECT MAX(id) FROM job_execution", Long.class);
@@ -725,9 +761,31 @@ class PipelineIntegrationTest {
         "INTERRUPTED",
         jdbc.queryForObject("SELECT status FROM job_stage WHERE job_id=?", String.class, id));
     long retry = jobs.retry(id);
-    assertNotEquals(id, retry);
-    assertEquals("PENDING", jobs.get(retry).status());
-    assertEquals(id, ((Number) jobs.get(retry).retryOf()).longValue());
+    assertEquals(id, retry);
+    assertEquals("PENDING", jobs.get(id).status());
+    assertNull(jobs.get(id).error());
+    assertEquals(0, jobs.get(id).stages().size());
+    assertEquals(id, jobs.retry(id), "排队中的重复重试必须幂等");
+    var history = jobs.history(id, new com.alphascope.common.dto.PageRequest());
+    assertEquals(1, history.total());
+    assertEquals("INTERRUPTED", history.items().getFirst().status());
+    assertEquals("INTERRUPTED", history.items().getFirst().stages().getFirst().status());
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT COUNT(*) FROM job_execution WHERE business_date='2001-01-02' AND job_name='DAILY'",
+            Integer.class));
+    jobs.process(id);
+    assertEquals("SUCCESS", jobs.get(id).status());
+    assertNull(jobs.get(id).error());
+    assertEquals(
+        "INTERRUPTED",
+        jobs.history(id, new com.alphascope.common.dto.PageRequest()).items().getFirst().status());
+    var query = new com.alphascope.scheduler.dto.JobQuery();
+    query.setType("DAILY");
+    assertTrue(jobs.page(query).items().stream().allMatch(x -> x.jobName().equals("DAILY")));
+    query.setType("WEEKLY");
+    assertTrue(jobs.page(query).items().stream().noneMatch(x -> x.id() == id));
   }
 
   @Test
@@ -744,11 +802,11 @@ class PipelineIntegrationTest {
     assertEquals("SUCCESS", jobs.get(changed).status());
     long a = reports.generate("DAILY", date), b = reports.generate("DAILY", date);
     var report = reports.get(b);
-    assertEquals("ADJ_V2/RULE_V2/REPORT_V11", report.algorithmVersion());
+    assertEquals("ADJ_V2/RULE_V2/REPORT_V12", report.algorithmVersion());
     assertEquals(
         report.algorithmVersion(), report.inputSnapshot().path("algorithmVersion").asText());
     assertEquals(
-        "REPORT_V11",
+        "REPORT_V12",
         jdbc.queryForObject(
             "SELECT prompt_version FROM analysis_report WHERE id=?", String.class, b));
     assertTrue(report.contentJson().path("summary").asText().contains("300476.SZ"));

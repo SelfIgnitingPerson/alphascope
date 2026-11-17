@@ -16,6 +16,27 @@ services:
       retries: 15
     restart: unless-stopped
     networks: [database]
+  # 一次性结构迁移使用管理连接；后台应用仍使用独立普通账号。
+  migrate:
+    image: ${ALPHASCOPE_IMAGE:-alphascope:0.1.0}
+    build: { context: .., dockerfile: Dockerfile }
+    entrypoint: ["java", "-Dloader.main=com.alphascope.tools.ProjectTools", "-cp", "/app/app.jar", "org.springframework.boot.loader.launch.PropertiesLauncher"]
+    command: ["install-schema"]
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: alphascope
+      MYSQL_USER: alphascope
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置数据库密码}
+      MYSQL_MIGRATION_USER: root
+      MYSQL_MIGRATION_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置数据库管理密码}
+    depends_on:
+      mysql: { condition: service_healthy }
+    restart: "no"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [database]
   backend:
     image: ${ALPHASCOPE_IMAGE:-alphascope:0.1.0}
     build: { context: .., dockerfile: Dockerfile }
@@ -37,6 +58,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       mysql: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     volumes: ["runtime:/app/.runtime"]
     expose: ["8080"]
     restart: unless-stopped

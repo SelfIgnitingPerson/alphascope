@@ -59,8 +59,10 @@ bash scripts/run-backend.sh
 
 IDE 使用 Java 21，导入根 POM 并启用 Lombok 注解处理。常规后端开发无需前端产物；生产同源 JAR 先构建前端，再执行 `./mvnw -pl backend -Pproduction-web clean package`。
 
-[POM、完整测试和构建](../docs/runbook/build-and-test.md) · [接口](../docs/api/endpoints.md) · [数据字典](../docs/database/schema.md) · [当前验收](../docs/verification/README.md)
+[POM、完整测试和构建](../docs/runbook/build-and-test.md) · [接口](../docs/api/endpoints.md) · [数据字典](../docs/database/schema.md)
 
 近两月量价从 `PriceVolumeAnalysisBuilder` 读取本修订方法及日历，交给 `PriceVolumeCalculator` 纯计算；输出 `PriceVolumeStudy`。价格按同源因子复权，量能用人民币成交额，不能把价格因子当股本因子。公式与旧修订兼容见[量价方法](../docs/runbook/price-volume.md)。
 
 条件式仓位方案由 `PositionStrategyCalculator` 从具名 `PositionStrategyInput` 计算，建仓/加仓ALL与减仓ANY逻辑分开；主量价风险标志只判定一次，策略直接复用，避免舍入造成风险结论不一致。旧报告不补写新策略字段。
+
+个人计划模块`planning`负责服务端冻结、原因子与风险线复核和追加记录；所有私人表继续经过租户隔离。产业目录修订仍归`industry`，目录维护不修改披露样本。组合执行模拟在`backtest/calculator/StrategyReplayCalculator`，复用生产两月条件，不复制一套技术信号规则。对应步骤见[个人计划](../docs/runbook/research-plans.md)与[历史验证](../docs/runbook/historical-validation.md)。

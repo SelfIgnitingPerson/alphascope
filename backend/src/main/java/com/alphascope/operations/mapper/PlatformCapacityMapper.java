@@ -1,6 +1,7 @@
 package com.alphascope.operations.mapper;
 
 import com.alphascope.operations.vo.PlatformUsage;
+import com.alphascope.operations.vo.StorageTotals;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -18,4 +19,11 @@ public interface PlatformCapacityMapper {
    * @return 无身份与正文的聚合数字
    */
   PlatformUsage usage();
+
+  /**
+   * 读取平台逻辑预算及本库物理分配，只返回数字。
+   *
+   * @return 四项聚合计量
+   */
+  StorageTotals storage();
 }

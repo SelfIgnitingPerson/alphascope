@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.market.mapper.MarketUniverseMapper">
+  <insert id="save" parameterType="com.alphascope.market.entity.MarketUniverseSnapshot">
+    INSERT IGNORE INTO market_universe_snapshot
+      (business_date, universe_scope, source, content_hash, members_json, evidence_json, observed_at)
+    VALUES(#{businessDate}, #{universeScope}, #{source}, #{contentHash}, #{membersJson}, #{evidenceJson}, #{observedAt})
+  </insert>
+  <select id="forDate" resultType="com.alphascope.market.entity.MarketUniverseSnapshot">
+    SELECT id, business_date, universe_scope, source, content_hash, observed_at
+    FROM market_universe_snapshot
+    WHERE business_date=#{date} AND universe_scope='BSE_A' AND source='SINA'
+    ORDER BY id DESC LIMIT 1
+  </select>
+  <select id="evidence" resultType="com.alphascope.market.entity.MarketUniverseSnapshot">
+    SELECT id, business_date, universe_scope, source, content_hash, members_json, evidence_json, observed_at
+    FROM market_universe_snapshot WHERE id=#{id} AND universe_scope='BSE_A' AND source='SINA'
+  </select>
+</mapper>

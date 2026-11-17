@@ -3,6 +3,7 @@ package com.alphascope.industry.controller;
 import com.alphascope.common.response.Result;
 import com.alphascope.industry.service.ThemeLeadersService;
 import com.alphascope.industry.vo.ThemeLeadersView;
+import com.alphascope.operations.policy.ResearchData;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/themes")
 public class ThemeLeadersController {

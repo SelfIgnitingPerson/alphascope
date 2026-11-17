@@ -1,6 +1,6 @@
 # 项目结构与开发约定
 
-本页只维护开发规则。模块入口见[后端导航](../../backend/README.md)和[前端导航](../../frontend/README.md)，实际验收见[当前版本](../verification/README.md)。
+本页只维护开发规则。模块入口见[后端导航](../../backend/README.md)和[前端导航](../../frontend/README.md)。
 
 ## 目录与版本
 

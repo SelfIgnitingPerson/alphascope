@@ -12,9 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 从当前唯一SQL在临时目录重建旧的单人结构，验证真实租户字段、唯一键和外键升级。
@@ -25,8 +25,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @EnabledIfEnvironmentVariable(named = "RUN_CONTAINER_TESTS", matches = "true")
 class TenantUpgradeIntegrationTest {
   @Container
-  static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>("mysql:8.0.40").withDatabaseName("alphascope");
+  static final MySQLContainer MYSQL =
+      new MySQLContainer("mysql:8.0.40").withDatabaseName("alphascope");
 
   @TempDir Path root;
 
@@ -39,11 +39,25 @@ class TenantUpgradeIntegrationTest {
               java.util.Objects.requireNonNull(input).readAllBytes(),
               java.nio.charset.StandardCharsets.UTF_8);
     }
-    String legacy = current;
+    String legacy = current.replaceAll("(?s)-- BEGIN STORAGE GUARDS.*?-- END STORAGE GUARDS", "");
     for (String table :
-        List.of("auth_session", "auth_event", "source_license", "service_alert", "app_user"))
+        List.of(
+            "storage_budget",
+            "job_attempt_history",
+            "research_plan_review",
+            "research_plan",
+            "theme_leader_revision",
+            "market_universe_snapshot",
+            "auth_session",
+            "auth_event",
+            "source_license",
+            "service_alert",
+            "app_user"))
       legacy = legacy.replaceAll("(?s)CREATE TABLE `" + table + "` \\(.*?\\) ENGINE=.*?;", "");
-    legacy = legacy.replaceAll("(?m)^INSERT INTO app_user[^;]*;", "");
+    legacy =
+        legacy
+            .replaceAll("(?m)^INSERT INTO app_user[^;]*;", "")
+            .replaceAll("(?m)^INSERT INTO storage_budget[^;]*;", "");
     legacy =
         legacy
             .replace("PRIMARY KEY (`tenant_id`,`id`)", "PRIMARY KEY (`id`)")
@@ -54,8 +68,7 @@ class TenantUpgradeIntegrationTest {
     Path migrations = root.resolve("temporary-legacy");
     Files.createDirectories(migrations);
     Files.writeString(migrations.resolve("V1__baseline.sql"), legacy);
-    var source =
-        new DriverManagerDataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword());
+    var source = new DriverManagerDataSource(MYSQL.getJdbcUrl(), "root", MYSQL.getPassword());
     Flyway.configure().dataSource(source).locations("filesystem:" + migrations).load().migrate();
     try (var connection = source.getConnection();
         var statement = connection.createStatement()) {
@@ -83,6 +96,13 @@ class TenantUpgradeIntegrationTest {
       }
       statement.execute(
           "INSERT INTO app_user(id,username,role,status) VALUES(2,'isolated-second','USER','PENDING')");
+      statement.execute(
+          "INSERT INTO research_plan(tenant_id,symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES(1,'600000.SH','SHORT','TEST','{}',REPEAT('a',64))");
+      assertThrows(
+          java.sql.SQLException.class,
+          () ->
+              statement.execute(
+                  "INSERT INTO research_plan_review(tenant_id,plan_id,review_json,review_hash) VALUES(2,1,'{}',REPEAT('b',64))"));
       statement.execute(
           "INSERT INTO watchlist(tenant_id,instrument_id) SELECT 2,id FROM instrument WHERE symbol='300476.SZ'");
       statement.execute(

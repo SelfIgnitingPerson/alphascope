@@ -7,6 +7,8 @@ import com.alphascope.intelligence.service.ReportService;
 import com.alphascope.intelligence.vo.ReportComparison;
 import com.alphascope.intelligence.vo.ReportDetail;
 import com.alphascope.intelligence.vo.ReportSummary;
+import com.alphascope.operations.policy.OperationalData;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 @RequestMapping("/api/v1/reports")
 public class ReportController {
@@ -36,6 +39,7 @@ public class ReportController {
    * @param request 报告类型、日期区间、分页及最新修订筛选条件
    * @return 统一响应中的报告分页结果
    */
+  @OperationalData
   @GetMapping
   public Result<PageResponse<ReportSummary>> list(
       @Valid @ModelAttribute @ParameterObject ReportSearchRequest request) {

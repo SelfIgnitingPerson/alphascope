@@ -9,7 +9,7 @@ import lombok.Builder;
  *
  * @author chenxuefeng
  */
-@Builder
+@Builder(toBuilder = true)
 public record HoldingResearchView(
     /** 方法版本，周期、阈值与本版本绑定。 */
     String version,
@@ -28,7 +28,11 @@ public record HoldingResearchView(
     /** 复用既有两月量价与条件策略。 */
     PriceVolumeStudy priceVolume,
     /** 口径、适用前提和执行限制。 */
-    List<String> notes) {
+    List<String> notes,
+    /** 本次实际价格、财报及规则输入来源；旧冻结记录为空时不倒填。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.util.Set<String> inputSources) {
   /**
    * 单一持有周期的判断、行动条件与缺项。
    *

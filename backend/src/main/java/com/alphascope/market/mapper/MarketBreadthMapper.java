@@ -46,4 +46,12 @@ public interface MarketBreadthMapper {
    * @return 最新快照；没有该来源数据时返回null
    */
   MarketBreadthSnapshot forSource(ResearchSnapshotQuery query);
+
+  /**
+   * 读取同日同源全A截面，不用沪深快照替代。
+   *
+   * @param query 明确日期与来源
+   * @return 精确快照或null
+   */
+  MarketBreadthSnapshot fullForDate(ResearchSnapshotQuery query);
 }

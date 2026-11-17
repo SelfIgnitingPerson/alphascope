@@ -31,6 +31,12 @@ public class JobWorker {
     tenants.each(jobs::processNext);
   }
 
+  /** 共享采集仅在管理员空间领取，和私人计算独立；供应商仍使用原串行客户端。 */
+  @Scheduled(fixedDelay = 1000, scheduler = "collectionScheduler")
+  public void collect() {
+    tenants.each(jobs::processSharedNext);
+  }
+
   @Scheduled(fixedDelay = 5000, scheduler = "heartbeatScheduler")
   public void heartbeat() {
     jobs.heartbeat();

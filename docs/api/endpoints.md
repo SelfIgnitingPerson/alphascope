@@ -43,6 +43,7 @@
 | GET  | `/instruments/{symbol}/indicators`  | start、end         | 指标序列、数据状态、算法版本和输入哈希                                            |
 | GET  | `/instruments/{symbol}/financials`  | asOf               | 截至当时已披露的财报                                                              |
 | GET  | `/instruments/{symbol}/signals`     | start、end         | 规则状态与证据；默认最近一个月                                                    |
+| GET  | `/market/universe` | date | 当日北交所供应商目录、来源、采集时刻及归档指纹；只读 |
 | GET  | `/market/overview`                  | date               | 当前业务日期的评级与覆盖状态                                                      |
 | GET  | `/market/scores`                    | start、end         | 市场评分历史                                                                      |
 | GET  | `/market/providers/baostock-policy` | 无                 | 只读本机预算和访问保护；不访问供应商、不解除保护，损坏计数不填零                  |
@@ -83,6 +84,8 @@ GET /api/v1/reports?type=DAILY&start=2026-01-01&end=2026-10-30&page=1&size=20&la
 
 报告的 `data_as_of` 是采用行情的业务时刻，`collected_at` 是采集时刻，`created_at` 是生成时刻。财报采用截至业务日 16:10、且不晚于实际当前时刻的披露证据。旧报告未曾冻结的字段不伪造补齐。
 
+北交所目录通过 `POST /api/v1/admin/jobs/market-universe?date=YYYY-MM-DD` 显式采集，仅管理员可用，202表示已入队。允许盘中核验；仅当前上海日期可采集新名单，过去日期只复用真实归档。任务不采集日线、不改自选和报告。详见[数据源手册](../runbook/data-providers.md#北交所当前在市目录)。
+
 ## 任务提交、停止与重试
 
 | 方法 | 路径                     | 参数 / 用途                                                      |
@@ -91,7 +94,7 @@ GET /api/v1/reports?type=DAILY&start=2026-01-01&end=2026-10-30&page=1&size=20&la
 | GET  | `/admin/jobs/{id}`       | 任务状态、心跳、阶段与错误                                       |
 | POST | `/admin/jobs/daily`      | date 必填；force 默认 false                                      |
 | POST | `/admin/jobs/weekly`     | date 必填；分析当周最后已开市日期；force 默认 false              |
-| POST | `/admin/jobs/{id}/retry` | 重试 FAILED / INTERRUPTED / CANCELLED / TIMED_OUT；保留 retry_of |
+| POST | `/admin/jobs/{id}/retry` | 重试失败、中断、取消或超时；沿用原编号并归档原执行 |
 
 | POST | `/admin/jobs/{id}/cancel` | 持久化取消意图；排队任务直接取消，运行任务等待收尾 |
 
@@ -132,7 +135,7 @@ GET /api/v1/reports?type=DAILY&start=2026-01-01&end=2026-10-30&page=1&size=20&la
 
 新报告的 `input_snapshot.marketAcquisition` 与 `analysis.marketAcquisition` 保存各标的 `symbol`、`source`、`mode`、`validatedFrom/validatedThrough`、`rows`、`oldestFetchedAt/newestFetchedAt` 和 `note`。`FRESH_CACHE` 表示有效期内缓存，`STORED_HISTORY` 表示通过完整性及数值校验的已存真实历史，`FETCHED` 表示本次采集。原采集时间不被报告生成时间替换；历史版本不保证包含供应商最新修订。旧报告缺少该字段时不从当前库补填。
 
-任务指纹包含缓存策略与当前流水线/报告算法标识（集中定义于 `ResearchVersion.java`）。失败重试仍新建尝试并保留 `retry_of`；缓存不足时错误中列出具体标的、请求区间和已保存/应有交易日数量。数据库使用当前单份初始化基线。
+任务指纹包含缓存策略与当前流水线/报告算法标识（集中定义于 `ResearchVersion.java`）。失败重试沿用原任务编号，原状态、原因和阶段保存在 `job_attempt_history`，不清除历史；缓存不足时错误中列出具体标的、请求区间和已保存/应有交易日数量。数据库使用当前单份初始化基线。
 
 ## GET 请求条件对象
 
@@ -160,7 +163,7 @@ GET /api/v1/instruments/300476.SZ/indicators?start=2026-10-01&end=2026-10-30
 
 取消请求先持久化为CANCEL_REQUESTED；截止为TIMEOUT_REQUESTED，完成清理后分别为CANCELLED和TIMED_OUT。最先保存的停止原因优先，完成提交校验owner和当前状态，不能覆盖停止请求。前端收到取消响应后仍轮询，直到终态。无法撤销已提交的独立业务事务或已归档报告。
 
-失败重试创建新尝试并重新核验已存输入（REVALIDATE_STORED_INPUTS），可以复用通过完整性和时效校验的数据，不根据旧阶段SUCCESS盲目跳过。通道页的 `capabilities` 区分五种能力及最近观测；声明支持不代表账号已获得权限。
+失败重试在原记录重新入队并核验已存输入，可以复用通过完整性和时效校验的数据，不根据旧阶段SUCCESS盲目跳过。通道页的 `capabilities` 区分五种能力及最近观测；声明支持不代表账号已获得权限。
 
 ## 五维规则、冻结实验与运维
 
@@ -247,3 +250,27 @@ PUBLIC全部业务接口需要会话，auth/status、login和register为入口�
 ### 当前产业核心企业目录
 
 `GET /themes/leaders`返回全部当前核心企业组，`GET /themes/{code}/leaders`返回单个主题，均使用统一Result。字段包括themeCode、title、marketAlias、reviewedAt、selectionBasis、limitation和members；每个成员保留displayOrder、symbol、name、tier、segment、standing、rationale、formalRanking及sources。displayOrder是研究展示序，formalRanking必须带年份和范围。接口只读静态研究目录、不联网、不写自选、不改变历史样本或评分；不能当作历史时点可得的名单。
+
+
+## 个人计划、目录维护与历史补齐
+
+| 方法 | 路径（/api/v1） | 行为 |
+| --- | --- | --- |
+| GET | /plans | 个人最近100份冻结计划，仅读取 |
+| POST | /plans | symbol、date、horizon、actionCode；服务端捕获实际研究及原始因子，不接受价位或租户字段 |
+| GET | /plans/{id}/reviews | 所属用户最近20次已保存复核，不重算 |
+| POST | /plans/{id}/reviews | date；显式追加，不覆盖原风险线 |
+| POST | /plans/{id}/archive | 停止跟踪并保留证据 |
+| GET | /admin/themes/{code}/leaders | 管理员读取当前目录、修订主键与90天复核提醒 |
+| POST | /admin/themes/{code}/leaders | expectedRevision、directory；锁主题、检查冲突、追加修订，不能倒填复核日期 |
+| POST | /admin/jobs/market-history?date=YYYY-MM-DD | 管理员提交持久补齐任务，HTTP202；复用进度、取消和重试，不生成报告 |
+
+目录冲突返回409；跨用户计划及复核按不存在处理。PUBLIC保留会话、CSRF与实际来源许可检查。计划原始研究和复核分别保存文本指纹；归档不删除证据。每位用户计划与复核总记录上限1000条，容量统计计入这些证据。
+
+产品状态增加`runtimeIssues`，只列影响当前研究的问题；原`blockers`只列发布前待办。两者不能用来替代行情覆盖与方法效果判断。实际检查开关仍由`sourceLicenseEnforced`返回。
+
+任务分类列表 `GET /admin/jobs?type=DAILY&page=1&size=20` 支持DAILY、WEEKLY、MARKET_HISTORY、MARKET_UNIVERSE和MARKET_FULL；省略type显示全部。`GET /admin/jobs/{id}/attempts?page=1&size=10`读取重试前的历史快照及旧版父重试链，按当前用户隔离。重复点击重试不会增加主列表记录；明确请求报告新修订仍产生新任务。
+
+研究计划列表 `GET /plans` 使用page/size及symbol/horizon/archived筛选，只返回摘要；`GET /plans/{id}`读取完整冻结内容，`GET /plans/{id}/reviews?page=1&size=20`分页读取复核。
+
+管理员 `PUT /admin/instruments/{symbol}/lifecycle` 使用listedAt、可空delistedAt、evidenceUrl和reference补录有公开依据的日期；这不会改写历史报告。`GET /admin/operations/storage`区分私人正文预算、平台正文预算、数据库物理分配和应用文件系统。`POST /admin/jobs/market-full?date=YYYY-MM-DD`显式核验三所同日证据，`GET /market/full-observation?date=YYYY-MM-DD`只读已归档结果；接口存在不代表真实历史完整。

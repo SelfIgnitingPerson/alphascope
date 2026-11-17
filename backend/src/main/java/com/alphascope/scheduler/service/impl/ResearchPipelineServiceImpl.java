@@ -9,9 +9,11 @@ import com.alphascope.indicator.service.IndicatorService;
 import com.alphascope.industry.service.IndustryService;
 import com.alphascope.industry.service.ThemeCohortService;
 import com.alphascope.intelligence.service.ReportService;
+import com.alphascope.market.service.FullMarketService;
 import com.alphascope.market.service.MarketBreadthService;
 import com.alphascope.market.service.MarketObservationService;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.market.service.MarketUniverseService;
 import com.alphascope.market.service.ScoreService;
 import com.alphascope.notification.service.NotificationService;
 import com.alphascope.portfolio.service.PortfolioService;
@@ -58,6 +60,9 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
   private final JobSnapshotService snapshots;
   private final JobExecutionControl control;
   private final StageQualityInspector qualityInspector;
+  private final MarketUniverseService universe;
+
+  @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
 
   public ResearchPipelineServiceImpl(
       MarketService market,
@@ -76,7 +81,8 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
       JobInputMapper inputs,
       JobSnapshotService snapshots,
       JobExecutionControl control,
-      StageQualityInspector qualityInspector) {
+      StageQualityInspector qualityInspector,
+      MarketUniverseService universe) {
     this.market = market;
     this.portfolio = portfolio;
     this.indicators = indicators;
@@ -94,6 +100,7 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
     this.snapshots = snapshots;
     this.control = control;
     this.qualityInspector = qualityInspector;
+    this.universe = universe;
   }
 
   /** {@inheritDoc} */
@@ -104,6 +111,47 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
     LocalDate requested = command.businessDate();
     var run = new Run(command);
     try {
+      if ("MARKET_UNIVERSE".equals(type)) {
+        if (market.synthetic()) throw new IllegalStateException("真实目录补齐不能在演示模式执行");
+        run.stage("MARKET_UNIVERSE", () -> universe.sync(requested));
+        var snapshot = universe.snapshot(requested);
+        if (!"AVAILABLE".equals(snapshot.status())) throw new IllegalStateException("目录归档未通过核验");
+        return new PipelineOutcome(
+            JobStatus.SUCCESS, run.aggregateQuality(), null, snapshot.contentHash());
+      }
+      if ("MARKET_FULL".equals(type)) {
+        run.stage("FULL_MARKET_ANALYSIS", () -> fullMarket.sync(requested));
+        var observation = fullMarket.observation(requested);
+        return new PipelineOutcome(
+            JobStatus.SUCCESS,
+            "AVAILABLE".equals(observation.status())
+                ? DataQualityStatus.AVAILABLE
+                : DataQualityStatus.PARTIAL,
+            null,
+            Jsons.hash(Jsons.write(observation)));
+      }
+      if ("MARKET_HISTORY".equals(type)) {
+        run.stage("CALENDAR", () -> market.syncCalendar(requested.minusDays(140), requested));
+        if (!market.isOpen(requested))
+          return new PipelineOutcome(
+              JobStatus.SKIPPED, DataQualityStatus.NOT_APPLICABLE, "目标日不是已核验交易日", null);
+        run.stage(
+            "MARKET_OBSERVATION",
+            () -> {
+              breadth.sync(requested);
+              observations.sync(requested);
+            });
+        var observation = observations.view(requested);
+        if (observation.analysis() == null
+            || !requested.equals(observation.analysis().businessDate())) {
+          throw new IllegalStateException("历史补齐未取得目标日期的市场观察，请查看阶段缺项与通道原因");
+        }
+        return new PipelineOutcome(
+            JobStatus.SUCCESS,
+            run.aggregateQuality(),
+            null,
+            Jsons.hash(Jsons.write(observation.analysis())));
+      }
       var state = snapshots.capture(requested);
       run.stage("FORECASTS", forecasts::syncWatchlist);
       run.stage("CALENDAR", () -> market.syncCalendar(requested.minusYears(2), requested));
@@ -116,6 +164,7 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
             JobStatus.SKIPPED, DataQualityStatus.NOT_APPLICABLE, "非交易日", null);
       }
       run.date = date;
+      run.stage("MARKET_UNIVERSE", () -> universe.refresh(date));
       run.stage("THEME_MEMBERS", () -> cohorts.prepare(date));
       Set<String> symbols = new LinkedHashSet<>();
       symbols.add("000300.SH");
@@ -155,7 +204,7 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
             }
             breadth.sync(date);
           });
-      run.stage("MARKET_OBSERVATION", () -> observations.sync(date));
+      run.stage("MARKET_OBSERVATION", () -> observations.calculateStored(date));
       var ingested = inputs.state(requested, market.synthetic());
       state.put("financials", ingested.getFinancials());
       state.put("marketBreadth", ingested.getMarketBreadth());

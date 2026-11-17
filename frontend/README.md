@@ -76,3 +76,6 @@ Dashboard各卡片分别加载、失败和重试，单只自选异常不会阻�
 产业链入口逐主题读取已保存的观察，一项读取失败不隐藏其他主题；已登记样本与待建设分类分组展示。`components/themes/ThemeObservation.vue`共用评分、相对强度、均线广度与样本覆盖的显示，所有值来自后端存量记录，不在前端重算分数。详情分别读取样本与独立产业指标，展示披露定义的公开依据、页码和真实可用日期。样本覆盖与行业覆盖分开说明，无成员、缺指标、旧观测和读取失败分别处理。
 
 使用说明`HelpView`（`/#/help`）和术语状态`TermsView`（`/#/terms`）各有独立路由、标题与导航。使用说明保留市场洞察→自选→同步→三周期计划→报告→验证的六步操作与模块分组；术语页独立搜索分类。旧`/help?term=...`、`?view=terms`及`?section=states`链接统一跳到术语页并保留定位，状态深链直接打开数据与任务状态分类；两个帮助页面均隐藏业务日期。个股默认进入`HoldingResearchPanel`，按短、中、长期切换同一份只读结果；数据接口失败局限于该面板。当前计划与报告冻结证据明确区分，旧报告只增加跳转入口，不追加分析。
+
+
+研究计划页位于`views/ResearchPlansView.vue`；个股方案内的`SaveResearchPlan`仅提交研究身份，价格由服务端捕获。`StrategySimulationPanel`与`ValidationMarketPanel`分别展示执行假设和市场验证；`ChannelCapabilities`只负责通道能力对照。管理员`ThemeLeaderEditor`按需读取、显式保存当前目录，不通过刷新修改数据。

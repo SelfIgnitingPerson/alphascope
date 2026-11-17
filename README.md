@@ -1,10 +1,10 @@
 # AlphaScope · A 股研究工作台
 
-用于市场洞察与自选股票研究：先核对市场与产业背景，再按短期、中期、长期分别制定有证据的买入、加仓、减仓和退出条件，最后用报告与历史验证持续复核。支持本机个人模式及多用户 PUBLIC 模式。
+用于市场洞察与自选股票研究：先核对市场与产业背景，再按短期、中期、长期分别制定有证据的买入、加仓、减仓和退出条件，保存个人研究计划，随后追加复核，并用冻结报告与历史验证持续检验。支持本机个人模式及多用户 PUBLIC 模式。
 
 首次使用从侧栏“帮助中心 → 使用说明”开始，按六步流程操作。长期估值和经营论点尚未核实时不生成合理买价；行情条件和个人适用前提分别展示。
 
-**版本：0.1.0，当前为内测工程。** [产品状态](docs/verification/product-readiness.md) · [当前验收](docs/verification/README.md)
+**版本：0.1.0。**
 
 技术栈：Java 21 / Spring Boot / MyBatis / Flyway / MySQL 8；Vue 3 / TypeScript / Vite。
 
@@ -14,7 +14,7 @@
 
 1. 按[本机MySQL说明](docs/runbook/local-mysql.md)创建空库与专用账号；已有库不重复初始化。
 2. 首次运行：`cp .env.example .env`，填写MySQL地址、端口、库名和专用账号密码。已有配置保留。
-3. 启动后端：`bash scripts/run-backend.sh`，Flyway 自动初始化空库。
+3. 首次空库先执行 `bash scripts/tools.sh install-schema` 安装表结构，再用 `bash scripts/run-backend.sh` 启动后端；已有库不重复初始化。
 4. 另开终端执行 `npm --prefix frontend ci` 和 `npm --prefix frontend run dev`。
 
 打开[工作台](http://127.0.0.1:5173/)，搜索并添加自选证券，选择首次初始化，再到任务中心生成日报。
@@ -30,7 +30,7 @@ alphascope/
 ├── backend/             Java 业务、测试、Mapper XML、唯一 SQL 基线
 ├── frontend/            Vue 页面、组件、业务 API、样式与测试
 ├── database/            数据库使用入口，不重复保存 SQL
-├── docs/                架构、接口、数据字典、运行手册与验收
+├── docs/                架构、接口、数据字典与运行手册
 ├── scripts/             启动、校验、维护与源码打包
 ├── deploy/              本机应用 Compose、生产 Compose、网关与环境模板
 ├── pom.xml              Maven 聚合入口和公共版本管理
@@ -71,6 +71,6 @@ alphascope/
 
 默认研究自选，不评估个人持仓，不自动交易。缺少完整全A证明、历史均线广度等条件时，总评级保持 `UNKNOWN`；规则效果仍需历史验证。
 
-PUBLIC 模式包含身份、用户资料隔离和逐来源用途准入。本机验证通过不代表已取得商业数据授权、完成公网部署或达到长期服务保障；实际状态只在[产品验收](docs/verification/product-readiness.md)维护。
+PUBLIC 模式包含登录会话、用户资料隔离和逐来源用途准入。数据源须按实际取得的采集、展示、派生和导出权限配置，部署步骤见[生产部署](deploy/README.md)。
 
 压力区间、结构止损参考与条件式建仓、加仓、减仓方案见[两月量价方法](docs/runbook/price-volume.md)，由新报告修订冻结，旧报告不补算。

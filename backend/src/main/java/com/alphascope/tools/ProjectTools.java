@@ -3,6 +3,7 @@ package com.alphascope.tools;
 import com.alphascope.AlphaScopeApplication;
 import com.alphascope.backtest.dto.ResearchValidationRequest;
 import com.alphascope.backtest.dto.ResearchValidationRequest.Scope;
+import com.alphascope.common.config.DatabaseConnectionSettings;
 import com.alphascope.common.dto.PageRequest;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.market.dto.TradingDatesQuery;
@@ -48,7 +49,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
  */
 public final class ProjectTools {
   private static final ObjectMapper JSON = new ObjectMapper();
-  private static final String BASE = "http://127.0.0.1:8080";
   private static final List<String> SYMBOLS = List.of("300476.SZ", "002837.SZ", "000300.SH");
 
   private ProjectTools() {}
@@ -62,10 +62,11 @@ public final class ProjectTools {
   public static void main(String[] args) throws Exception {
     if (args.length == 0) {
       throw new IllegalArgumentException(
-          "package | validate-research 开始 结束 [all|technical|market] | reproduce-research-validation | backup | verify-backup | upgrade-schema | check | probe [baostock|sina] [日期] | replay 日期... | verify-real 日期 | verify-theme-sources | sync-theme-research 日期 | warm-market-history 日期");
+          "package | validate-research 开始 结束 [all|technical|market] | export-research-validation 任务编号 | reproduce-research-validation | backup | verify-backup | upgrade-schema | check | probe [baostock|sina] [日期] | replay 日期... | verify-real 日期 | verify-theme-sources | sync-theme-research 日期 | warm-market-history 日期");
     }
     Path root = Path.of(System.getProperty("alphascope.root", ".")).toAbsolutePath().normalize();
     switch (args[0]) {
+      case "install-schema" -> installSchema();
       case "package" -> {
         int files = SourceArchive.write(root);
         System.out.println("artifacts/alphascope-source.zip files=" + files);
@@ -82,14 +83,18 @@ public final class ProjectTools {
         ResearchValidationTool.run(root, request);
       }
       case "reproduce-research-validation" -> ResearchValidationTool.reproduce(root);
+      case "export-research-validation" -> {
+        require(args.length == 2, "请提供已完成的验证任务编号");
+        ResearchValidationTool.exportTask(root, Long.parseLong(args[1]));
+      }
       case "backup" -> System.out.println(Jsons.write(maintenance(root).backupAndVerify(14)));
       case "verify-backup" ->
           System.out.println("verified tables=" + maintenance(root).verifyLatest().tables().size());
       case "upgrade-schema-direct" ->
           System.out.println(
-              "explicit direct schema DDL=" + maintenance(root).upgradeSchemaDirect());
+              "explicit direct schema DDL=" + maintenance(root, true).upgradeSchemaDirect());
       case "upgrade-schema" ->
-          System.out.println("controlled schema DDL=" + maintenance(root).upgradeSchema());
+          System.out.println("controlled schema DDL=" + maintenance(root, true).upgradeSchema());
       case "verify-theme-sources" -> verifyThemeSources(root);
       case "sync-theme-research" -> {
         require(args.length == 2, "请提供主题研究的精确业务日期");
@@ -244,7 +249,8 @@ public final class ProjectTools {
 
   private static JsonNode api(String path, boolean post) throws Exception {
     try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
-      var request = HttpRequest.newBuilder(URI.create(BASE + path)).timeout(Duration.ofMinutes(10));
+      var request =
+          HttpRequest.newBuilder(LocalApiEndpoint.resolve(path)).timeout(Duration.ofMinutes(10));
       if (post) {
         request.POST(HttpRequest.BodyPublishers.noBody());
       }
@@ -262,11 +268,32 @@ public final class ProjectTools {
   }
 
   private static DatabaseMaintenance maintenance(Path root) {
+    return maintenance(root, false);
+  }
+
+  private static DatabaseMaintenance maintenance(Path root, boolean ddl) {
     var settings =
-        com.alphascope.common.config.DatabaseConnectionSettings.fromEnvironment(System.getenv());
+        ddl
+            ? DatabaseConnectionSettings.forMigration(System.getenv())
+            : DatabaseConnectionSettings.fromEnvironment(System.getenv());
     var source =
         new DriverManagerDataSource(settings.url(), settings.username(), settings.password());
     return new DatabaseMaintenance(source, root, Clock.systemUTC());
+  }
+
+  /** 一次性管理连接安装结构，不使用应用账号降级尝试DDL。 */
+  private static void installSchema() {
+    var settings = DatabaseConnectionSettings.forMigration(System.getenv());
+    var source =
+        new DriverManagerDataSource(settings.url(), settings.username(), settings.password());
+    var result =
+        org.flywaydb.core.Flyway.configure()
+            .dataSource(source)
+            .locations("classpath:db/migration")
+            .load()
+            .migrate();
+    System.out.println(
+        "schema migrations=" + result.migrationsExecuted + "; application credentials unchanged");
   }
 
   private static void require(boolean value, String message) {

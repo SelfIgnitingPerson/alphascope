@@ -1,5 +1,6 @@
 package com.alphascope.market.mapper;
 
+import com.alphascope.market.dto.InstrumentLifecycle;
 import com.alphascope.market.entity.Instrument;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -18,4 +19,11 @@ public interface InstrumentAdminMapper {
    * @throws org.springframework.dao.DuplicateKeyException 证券代码已经存在
    */
   void create(Instrument row);
+
+  /**
+   * 保存经核验的生命周期原文，代码不变。
+   *
+   * @param row 已验证日期、来源和原文
+   */
+  void lifecycle(InstrumentLifecycle row);
 }

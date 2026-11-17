@@ -1,6 +1,8 @@
 package com.alphascope.scheduler.control;
 
 import com.alphascope.common.config.AlphaScopeProperties;
+import com.alphascope.common.diagnostic.FailureDiagnosis;
+import com.alphascope.common.diagnostic.FailureDiagnostics;
 import com.alphascope.common.exception.BusinessException;
 import com.alphascope.common.task.ExecutionContext;
 import com.alphascope.common.task.ExecutionProgress;
@@ -95,7 +97,7 @@ public class JobExecutionControl {
             execution.jobId(),
             execution.stage(),
             e);
-      state.diagnostic = com.alphascope.common.diagnostic.FailureDiagnostics.from(e);
+      state.diagnostic = FailureDiagnostics.from(e);
       TaskStopReason stopped = state.stop;
       if (stopped == null && e instanceof TaskStoppedException terminated) {
         stopped = terminated.getReason();
@@ -285,7 +287,7 @@ public class JobExecutionControl {
     volatile TaskStopReason stop;
 
     /** 当前失败的公开分类，成功时为空。 */
-    com.alphascope.common.diagnostic.FailureDiagnosis diagnostic;
+    FailureDiagnosis diagnostic;
 
     /** 最近实际工作进度。 */
     volatile ExecutionProgress progress;

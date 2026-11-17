@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ThemeObservation from '../components/themes/ThemeObservation.vue';
+import ThemeLeaderEditor from '../components/themes/ThemeLeaderEditor.vue';
 import ThemeLeaderPanel from '../components/themes/ThemeLeaderPanel.vue';
 import SectionTabs from '../components/common/SectionTabs.vue';
 import AsyncState from '../components/common/AsyncState.vue';
@@ -46,6 +47,7 @@ const sourceUrl = computed(() => {
   return /^https?:\/\//i.test(value) ? value : '';
 });
 const activeTab = ref('members');
+const directoryRefresh = ref(0);
 const tabs = [
   { id: 'members', label: '披露同业样本' },
   { id: 'history', label: '强弱历史' },
@@ -69,7 +71,11 @@ const latest = computed(() => data.value?.strength.items.at(-1));
     <ThemeLeaderPanel
       :code="code"
       :research-date="date"
-      :refresh-token="refreshToken"
+      :refresh-token="refreshToken + directoryRefresh"
+    />
+    <ThemeLeaderEditor
+      :code="code"
+      @saved="directoryRefresh++"
     />
     <details
       class="reading-details"

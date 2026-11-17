@@ -29,6 +29,7 @@ export interface ProductStatus {
   backupEnabled: boolean;
   /** 服务端实际许可检查开关；不能仅凭本机/公网模式猜测。 */
   sourceLicenseEnforced: boolean;
+  runtimeIssues: string[];
   blockers: string[];
 }
 export interface LicenseInput {

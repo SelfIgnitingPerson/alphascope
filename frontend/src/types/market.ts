@@ -268,6 +268,10 @@ export interface MarketObservationView {
     status?: string;
     /** 实际保存的采集诊断 JSON。 */
     evidence_json?: string;
+    /** 状态所属业务日，不能将另一日的补齐进度套在当前日期。 */
+    business_date?: string;
+    /** 最近保存进展的上海时间，不等同于任务心跳。 */
+    updated_at?: string;
   };
 }
 

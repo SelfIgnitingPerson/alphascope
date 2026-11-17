@@ -265,7 +265,6 @@ public class ReportServiceImpl implements ReportService {
   /** {@inheritDoc} */
   @Override
   public long generate(String type, LocalDate date, Long jobId) {
-    if (licenses != null) licenses.requireAll("DERIVED_REPORT");
     boolean synthetic = market.synthetic();
     List<StockEvidence> evidence = new ArrayList<>();
     Map<String, CollectionView> financialCollection = new LinkedHashMap<>();
@@ -429,10 +428,12 @@ public class ReportServiceImpl implements ReportService {
     input.put("algorithmVersion", ResearchVersion.ALGORITHM);
     input.put(
         "analysis", ReportAnalysisBuilder.build(json.valueToTree(input), type, date, synthetic));
+    var verifiedNarrative =
+        RuleReportBuilder.build(type, date, json.valueToTree(input), refs, synthetic);
+    input.put("verifiedNarrative", verifiedNarrative);
+    if (licenses != null && !synthetic) licenses.requireEvidence(input, "DERIVED_REPORT");
     var generated = synthetic ? Optional.<ReportResult>empty() : provider.summarize(input, refs);
-    var result =
-        generated.orElseGet(
-            () -> RuleReportBuilder.build(type, date, json.valueToTree(input), refs, synthetic));
+    var result = generated.orElse(verifiedNarrative);
     AnalysisReport row = new AnalysisReport();
     row.setReportType(type);
     row.setBusinessDate(date);

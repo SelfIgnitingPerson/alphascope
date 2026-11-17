@@ -21,9 +21,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 在隔离MySQL中重建旧修订，并验证保存实验不受当前值覆盖及JSON格式化影响。
@@ -42,13 +42,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @EnabledIfEnvironmentVariable(named = "RUN_DB_TESTS", matches = "true")
 class RevisionReplayIntegrationTest {
-  @Container static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.40");
+  @Container static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.0.40");
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry properties) {
     properties.add("spring.datasource.url", MYSQL::getJdbcUrl);
     properties.add("spring.datasource.username", MYSQL::getUsername);
     properties.add("spring.datasource.password", MYSQL::getPassword);
+    properties.add("spring.flyway.user", () -> "root");
+    properties.add("spring.flyway.password", MYSQL::getPassword);
   }
 
   @Autowired JdbcTemplate jdbc;

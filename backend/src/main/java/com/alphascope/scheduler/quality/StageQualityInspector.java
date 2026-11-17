@@ -7,9 +7,11 @@ import com.alphascope.fundamental.service.FinancialSyncService;
 import com.alphascope.fundamental.service.ForecastService;
 import com.alphascope.fundamental.service.FundamentalService;
 import com.alphascope.indicator.service.IndicatorService;
+import com.alphascope.market.service.FullMarketService;
 import com.alphascope.market.service.MarketBreadthService;
 import com.alphascope.market.service.MarketObservationService;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.market.service.MarketUniverseService;
 import com.alphascope.portfolio.dto.WatchlistDO;
 import com.alphascope.portfolio.service.PortfolioService;
 import com.alphascope.scheduler.dto.DataQualityStatus;
@@ -39,6 +41,9 @@ public class StageQualityInspector {
   private final MarketObservationService observations;
   private final IndicatorService indicators;
   private final SignalService signals;
+  private final MarketUniverseService universe;
+
+  @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
 
   public StageQualityInspector(
       PortfolioService portfolio,
@@ -49,7 +54,8 @@ public class StageQualityInspector {
       MarketBreadthService breadth,
       MarketObservationService observations,
       IndicatorService indicators,
-      SignalService signals) {
+      SignalService signals,
+      MarketUniverseService universe) {
     this.portfolio = portfolio;
     this.market = market;
     this.forecasts = forecasts;
@@ -59,6 +65,7 @@ public class StageQualityInspector {
     this.observations = observations;
     this.indicators = indicators;
     this.signals = signals;
+    this.universe = universe;
   }
 
   /**
@@ -73,6 +80,8 @@ public class StageQualityInspector {
         && Set.of(
                 PipelineStage.FORECASTS,
                 PipelineStage.RESEARCH_DATA,
+                PipelineStage.MARKET_UNIVERSE,
+                PipelineStage.FULL_MARKET_ANALYSIS,
                 PipelineStage.MARKET_OBSERVATION)
             .contains(stage)) {
       return new StageQuality(DataQualityStatus.NOT_APPLICABLE, 0, 0, List.of(), "演示模式不采集真实增强证据");
@@ -80,6 +89,36 @@ public class StageQualityInspector {
     List<StageQualityIssue> issues = new ArrayList<>();
     int expected = 0, available = 0;
     switch (stage) {
+      case FULL_MARKET_ANALYSIS -> {
+        var value = fullMarket.observation(date);
+        return new StageQuality(
+            value != null && "AVAILABLE".equals(value.status())
+                ? DataQualityStatus.AVAILABLE
+                : DataQualityStatus.PARTIAL,
+            value == null ? 0 : value.breadth().valid60(),
+            value == null ? 0 : value.breadth().trading(),
+            List.of(),
+            "三所同日截面、停牌和同源历史分别验收；缺窗口不形成完整评级");
+      }
+      case MARKET_UNIVERSE -> {
+        var view = universe.snapshot(date);
+        boolean valid =
+            view != null
+                && date.equals(view.businessDate())
+                && "AVAILABLE".equals(view.status())
+                && view.memberCount() != null
+                && view.memberCount() > 0;
+        return new StageQuality(
+            valid ? DataQualityStatus.AVAILABLE : DataQualityStatus.UNAVAILABLE,
+            valid ? view.memberCount() : 0,
+            view == null || view.memberCount() == null ? 0 : view.memberCount(),
+            valid
+                ? List.of()
+                : List.of(
+                    new StageQualityIssue(
+                        "BSE_A", "SINA", "NOT_ARCHIVED", "该日北交所在市目录未归档；不使用当前名单代替历史")),
+            "仅核验供应商当前在市目录；不表示收盘行情、历史窗口或完整全A评级可用");
+      }
       case FORECASTS -> {
         for (var forecast : forecasts.forReport(date)) {
           expected++;
@@ -151,7 +190,7 @@ public class StageQualityInspector {
       case INDICATORS -> {
         for (var stock : watchlist()) {
           String day = market.dayStatus(stock.getSymbol(), date);
-          if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day)) {
+          if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day) || "DELISTED".equals(day)) {
             continue;
           }
           expected++;
@@ -170,7 +209,7 @@ public class StageQualityInspector {
       case SCORE_RULES -> {
         for (var stock : watchlist()) {
           String day = market.dayStatus(stock.getSymbol(), date);
-          if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day)) {
+          if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day) || "DELISTED".equals(day)) {
             continue;
           }
           var rows =

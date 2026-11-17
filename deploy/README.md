@@ -6,7 +6,7 @@
 
 1. 将production.env.example复制为本目录.env，设置权限600，填写实际域名、证书邮箱、数据库口令及至少12字符的管理员初始密码；邀请注册默认关闭。
 2. 配置域名解析，确认80/443端口可达，运行`docker compose --env-file deploy/.env -f deploy/compose.yml config --quiet`。
-3. 运行`docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build`。只有网关对外开放，数据库与后端不发布主机端口。
+3. 运行`docker compose --env-file deploy/.env -f deploy/compose.yml up -d --build`。migrate一次性容器使用管理员连接执行Flyway和预算触发器DDL，成功后backend才启动；管理员凭据不传入backend，不修改MySQL全局权限。只有网关对外开放，数据库与后端不发布主机端口。一次性schema服务先以管理员连接执行Flyway和触发器DDL，完成后才启动使用专用普通账号的backend；管理员凭据不传给backend，不修改MySQL全局权限。
 4. 访问HTTPS域名，使用配置的管理员账号登录。首次创建后不会因为环境变量变化重置密码；账号管理入口负责恢复密码并撤销旧会话。
 5. 在产品运行页核对来源许可、实际数据日期、队列与存储预算。许可没有依据或过期时保留未就绪状态，不能靠登记按钮获得供应商授权。按实际取得的使用范围配置后，再试运行首次研究。
 6. 用两个普通账号验收各自空白自选、互不可见的报告和任务，以及无法访问管理员接口。日历和行情具备实际可用证据后，才开启日常调度。

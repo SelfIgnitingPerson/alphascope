@@ -86,6 +86,9 @@ public class InstrumentDiscoveryServiceImpl implements InstrumentDiscoveryServic
     } catch (RuntimeException error) {
       throw new BusinessException(ResultCode.DATA_UNAVAILABLE, 503, "证券目录暂不可用，请稍后重试");
     }
+    if (selected.name().contains("退"))
+      throw new BusinessException(
+          ResultCode.DATA_UNAVAILABLE, 422, "该目录标记为退市证券，不能作为当前在市自选新增；历史研究请由管理员核对生命周期");
     var row = new Instrument();
     row.setSymbol(selected.symbol());
     row.setName(selected.name());

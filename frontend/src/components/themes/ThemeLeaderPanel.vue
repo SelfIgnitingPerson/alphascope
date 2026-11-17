@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { today, daysBefore } from '../../utils/date';
 import SectionCard from '../common/SectionCard.vue';
 import AsyncState from '../common/AsyncState.vue';
 import { getThemeLeaders } from '../../api/theme-leaders';
@@ -36,6 +37,12 @@ const safeUrl = (value: string) => (/^https:\/\//i.test(value) ? value : '');
             {{ researchDate }}；这里展示后来整理的当前目录，不能认作当时已知的龙头名单。
           </span>
         </div>
+        <p
+          v-if="leaders.data.value.reviewedAt < daysBefore(today(), 90)"
+          class="notice notice--warning"
+        >
+          目录距上次复核超过90天，请管理员核对最新公开资料；不自动改变企业梯队。
+        </p>
         <div
           class="leader-grid"
           data-testid="industry-leaders"

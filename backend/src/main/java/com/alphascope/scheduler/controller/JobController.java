@@ -3,6 +3,7 @@ package com.alphascope.scheduler.controller;
 import com.alphascope.common.dto.PageRequest;
 import com.alphascope.common.response.PageResponse;
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.OperationalData;
 import com.alphascope.scheduler.dto.JobSubmissionCommand;
 import com.alphascope.scheduler.service.JobService;
 import com.alphascope.scheduler.vo.JobView;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/admin/jobs")
 public class JobController {
@@ -40,7 +42,7 @@ public class JobController {
    */
   @GetMapping
   public Result<PageResponse<JobView>> list(
-      @Valid @ModelAttribute @ParameterObject PageRequest request) {
+      @Valid @ModelAttribute @ParameterObject com.alphascope.scheduler.dto.JobQuery request) {
     return Result.success(service.page(request));
   }
 
@@ -76,6 +78,57 @@ public class JobController {
   }
 
   /**
+   * 显式提交三所同日清单、行情及历史证据核验，不生成日报。
+   *
+   * @param date 已完成交易日
+   * @return HTTP 202及已接收任务
+   */
+  @PostMapping("/market-full")
+  public ResponseEntity<Result<JobView>> fullMarket(@RequestParam LocalDate date) {
+    return accepted(
+        service.submit(
+            JobSubmissionCommand.builder()
+                .reportType("MARKET_FULL")
+                .businessDate(date)
+                .force(true)
+                .build()));
+  }
+
+  /**
+   * 提交沪深历史资料补齐。
+   *
+   * @param date 已完成交易日
+   * @return 接收的任务
+   */
+  @PostMapping("/market-history")
+  public ResponseEntity<Result<JobView>> marketHistory(@RequestParam LocalDate date) {
+    return accepted(
+        service.submit(
+            JobSubmissionCommand.builder()
+                .reportType("MARKET_HISTORY")
+                .businessDate(date)
+                .force(true)
+                .build()));
+  }
+
+  /**
+   * 管理员显式补齐当前北交所在市目录；盘中也可采集清单，不产生收盘行情或报告。
+   *
+   * @param date 当前目录观测日期；历史无归档时不倒填
+   * @return HTTP 202及持久采集任务
+   */
+  @PostMapping("/market-universe")
+  public ResponseEntity<Result<JobView>> marketUniverse(@RequestParam LocalDate date) {
+    return accepted(
+        service.submit(
+            JobSubmissionCommand.builder()
+                .reportType("MARKET_UNIVERSE")
+                .businessDate(date)
+                .force(true)
+                .build()));
+  }
+
+  /**
    * 提交周报任务，响应只确认排队，后台继续执行。
    *
    * @param date 研究业务日期，不得晚于上海当前日期
@@ -96,10 +149,10 @@ public class JobController {
   }
 
   /**
-   * 为失败或中断任务创建新的尝试，保留原失败记录。
+   * 在原任务编号下重新排队，归档原执行状态和阶段。
    *
    * @param id 被重试的原任务主键
-   * @return HTTP 202及新尝试或当前活动任务详情
+   * @return HTTP 202及原任务的最新状态
    */
   @PostMapping("/{id}/retry")
   public ResponseEntity<Result<JobView>> retry(@PathVariable long id) {
@@ -115,6 +168,19 @@ public class JobController {
   @PostMapping("/{id}/cancel")
   public Result<JobView> cancel(@PathVariable long id) {
     return Result.success(service.cancel(id));
+  }
+
+  /**
+   * 分页查看原任务历次执行，不把失败尝试铺成新任务。
+   *
+   * @param id 任务编号
+   * @param request 分页
+   * @return 不可变执行历史
+   */
+  @GetMapping("/{id}/attempts")
+  public Result<PageResponse<JobView>> history(
+      @PathVariable long id, @Valid @ModelAttribute @ParameterObject PageRequest request) {
+    return Result.success(service.history(id, request));
   }
 
   private ResponseEntity<Result<JobView>> accepted(long id) {

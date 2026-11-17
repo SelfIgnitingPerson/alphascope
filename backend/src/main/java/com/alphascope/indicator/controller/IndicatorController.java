@@ -4,6 +4,7 @@ import com.alphascope.common.dto.DateRangeRequest;
 import com.alphascope.common.response.Result;
 import com.alphascope.indicator.service.IndicatorService;
 import com.alphascope.indicator.vo.IndicatorView;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class IndicatorController {
   private final IndicatorService service;

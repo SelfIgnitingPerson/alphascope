@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import SaveResearchPlan from './SaveResearchPlan.vue';
 import AsyncState from '../common/AsyncState.vue';
 import SectionCard from '../common/SectionCard.vue';
 import StateBadge from '../common/StateBadge.vue';
@@ -145,6 +146,13 @@ const labels: Record<string, string> = {
                   <dd class="reference-price">{{ number(action.stopReference) }} 元</dd>
                 </div>
               </dl>
+              <SaveResearchPlan
+                v-if="data.quoteDate === data.asOf && current.status !== 'UNAVAILABLE'"
+                :symbol="symbol"
+                :date="date"
+                :horizon="current.code"
+                :action-code="action.code"
+              />
               <p class="help-text">
                 {{
                   action.conditionLogic === 'ALL'

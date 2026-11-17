@@ -49,7 +49,8 @@ class StageQualityInspectorTest {
           breadth,
           observations,
           indicators,
-          signals);
+          signals,
+          org.mockito.Mockito.mock(com.alphascope.market.service.MarketUniverseService.class));
 
   StageQualityInspectorTest() {
     var stock = new WatchlistDO();

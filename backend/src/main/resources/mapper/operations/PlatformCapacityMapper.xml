@@ -4,6 +4,7 @@
  <select id="usage" resultType="com.alphascope.operations.vo.PlatformUsage">
  SELECT (SELECT COUNT(*) FROM job_execution WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_jobs,
  (SELECT COUNT(*) FROM research_validation_task WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED')) AS active_validations,
- (SELECT COALESCE(SUM(OCTET_LENGTH(evidence_json)),0) FROM research_validation_task) AS evidence_bytes
+ COALESCE((SELECT used_bytes FROM storage_budget WHERE scope_id=0),0) AS evidence_bytes
  </select>
+ <select id="storage" resultType="com.alphascope.operations.vo.StorageTotals">SELECT used_bytes,reserved_bytes,limit_bytes,(SELECT COALESCE(SUM(data_length+index_length),0) FROM information_schema.tables WHERE table_schema=DATABASE()) AS database_allocated_bytes FROM storage_budget WHERE scope_id=0</select>
 </mapper>

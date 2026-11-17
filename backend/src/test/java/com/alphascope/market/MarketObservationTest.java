@@ -63,6 +63,35 @@ class MarketObservationTest {
   }
 
   @Test
+  void fullMarketIncludesBeijingInBothMovingAverageDenominators() {
+    for (int i = 0; i < dates.size(); i++) {
+      var node = (ObjectNode) data.get(dates.get(i));
+      ((ObjectNode) node.path("metrics")).put("observed", 3);
+      ((ArrayNode) node.path("raw").path("daily"))
+          .addObject()
+          .put("code", "bj.920000")
+          .put("date", dates.get(i).toString())
+          .put("tradestatus", "1")
+          .put("close", 100 + i);
+    }
+    factors.put("bj.920000", MarketObservationCalculator.factors(json.createArrayNode(), end));
+    var input =
+        new com.alphascope.market.dto.MarketObservationInput(
+            end, dates, data, factors, benchmark, params, "FULL_A");
+    var result = MarketObservationCalculator.calculateScope(input);
+    assertEquals("FULL_A", result.scope());
+    assertEquals("FULL_A_OBSERVATION_V1", result.version());
+    assertEquals(3, result.breadth().trading());
+    assertEquals(3, result.breadth().valid20());
+    assertEquals(3, result.breadth().valid60());
+    assertEquals(2d / 3, result.breadth().ratio20(), 1e-12);
+    factors.remove("bj.920000");
+    var missing = MarketObservationCalculator.calculateScope(input);
+    assertNull(missing.breadth().ratio20());
+    assertEquals(2d / 3, missing.breadth().coverage20(), 1e-12);
+  }
+
+  @Test
   void splitAdjustedBreadthAndTradingDenominatorAreCorrect() {
     var r = MarketObservationCalculator.calculate(end, dates, data, factors, benchmark, params);
     assertEquals("AVAILABLE", r.status());

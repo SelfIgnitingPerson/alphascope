@@ -16,6 +16,37 @@ import org.junit.jupiter.api.Test;
  */
 class TaskIsolationTest {
   @Test
+  void sharedHistoryCollectionDoesNotBlockCachedPrivateResearch() throws Exception {
+    var config = new TaskConfig();
+    var collection = config.collectionScheduler();
+    var privateResearch = config.workerScheduler();
+    collection.initialize();
+    privateResearch.initialize();
+    var entered = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    try {
+      collection.execute(
+          () -> {
+            entered.countDown();
+            try {
+              release.await();
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+          });
+      assertTrue(entered.await(2, TimeUnit.SECONDS));
+      var completed = new CompletableFuture<String>();
+      privateResearch.execute(() -> completed.complete(Thread.currentThread().getName()));
+      assertTrue(completed.get(1, TimeUnit.SECONDS).startsWith("alphascope-worker-"));
+      assertEquals(1, release.getCount(), "私人研究完成时共享采集仍在执行");
+    } finally {
+      release.countDown();
+      collection.destroy();
+      privateResearch.destroy();
+    }
+  }
+
+  @Test
   void blockedWorkerAndBackupDoNotStarveHeartbeatOrDeadlineMonitoring() throws Exception {
     var config = new TaskConfig();
     var worker = config.workerScheduler();

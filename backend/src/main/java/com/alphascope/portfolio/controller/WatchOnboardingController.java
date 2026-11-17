@@ -3,6 +3,7 @@ package com.alphascope.portfolio.controller;
 import com.alphascope.common.response.Result;
 import com.alphascope.market.service.InstrumentDiscoveryService;
 import com.alphascope.market.vo.InstrumentDiscoveryView;
+import com.alphascope.operations.policy.OperationalData;
 import com.alphascope.portfolio.dto.WatchDiscoveryInput;
 import com.alphascope.portfolio.service.WatchOnboardingService;
 import com.alphascope.portfolio.vo.WatchDiscoveryResult;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 public class WatchOnboardingController {
   private final InstrumentDiscoveryService discovery;

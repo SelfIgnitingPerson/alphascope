@@ -16,9 +16,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * HTTPS真实浏览器验证两个PUBLIC账号的完整使用闭环；凭据与证书只属于一次性测试。
@@ -44,8 +44,8 @@ class PublicBrowserIntegrationTest {
   private static final int WEB_PORT = freePort();
 
   @Container
-  static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>("mysql:8.0.40").withDatabaseName("alphascope_public_browser_fixture");
+  static final MySQLContainer MYSQL =
+      new MySQLContainer("mysql:8.0.40").withDatabaseName("alphascope_public_browser_fixture");
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry properties) {
@@ -53,6 +53,8 @@ class PublicBrowserIntegrationTest {
     properties.add("spring.datasource.url", MYSQL::getJdbcUrl);
     properties.add("spring.datasource.username", MYSQL::getUsername);
     properties.add("spring.datasource.password", MYSQL::getPassword);
+    properties.add("spring.flyway.user", () -> "root");
+    properties.add("spring.flyway.password", MYSQL::getPassword);
   }
 
   private static int freePort() {

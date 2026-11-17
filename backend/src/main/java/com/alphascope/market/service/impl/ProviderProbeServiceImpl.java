@@ -10,6 +10,7 @@ import com.alphascope.market.dto.ProviderProbeRequest;
 import com.alphascope.market.provider.MarketCapability;
 import com.alphascope.market.provider.MarketDataProvider;
 import com.alphascope.market.service.ProviderProbeService;
+import com.alphascope.market.vo.ProviderProbeSample;
 import com.alphascope.market.vo.ProviderProbeView;
 import jakarta.annotation.PreDestroy;
 import java.time.Clock;
@@ -236,7 +237,7 @@ public class ProviderProbeServiceImpl implements ProviderProbeService {
       /** 执行状态。 */
       String status,
       /** 核验摘要。 */
-      com.alphascope.market.vo.ProviderProbeSample sample,
+      ProviderProbeSample sample,
       /** 受控诊断。 */
       FailureDiagnosis diagnostic) {}
 

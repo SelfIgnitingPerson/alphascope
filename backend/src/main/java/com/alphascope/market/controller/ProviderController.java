@@ -4,6 +4,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.market.service.MarketService;
 import com.alphascope.market.vo.BaoStockPolicyView;
 import com.alphascope.market.vo.ProviderStatusView;
+import com.alphascope.operations.policy.OperationalData;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@OperationalData
 @RestController
 @RequestMapping("/api/v1/market")
 public class ProviderController {

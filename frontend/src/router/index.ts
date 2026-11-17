@@ -131,6 +131,15 @@ export const router = createRouter({
       },
     },
     {
+      path: '/plans',
+      component: () => import('../views/ResearchPlansView.vue'),
+      meta: {
+        title: '研究计划',
+        description: '冻结原始依据，按研究日追加复核，跟踪变化与失效条件。',
+        section: '/plans',
+      },
+    },
+    {
       path: '/backtest',
       component: () => import('../views/BacktestView.vue'),
       meta: {

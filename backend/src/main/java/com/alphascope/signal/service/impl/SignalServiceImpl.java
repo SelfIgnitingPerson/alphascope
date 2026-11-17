@@ -5,10 +5,12 @@ import com.alphascope.common.dto.InstrumentHistoryQuery;
 import com.alphascope.common.dto.OptionalDateRangeRequest;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.common.validation.DateRangeValidator;
+import com.alphascope.fundamental.entity.FinancialReport;
 import com.alphascope.fundamental.service.FundamentalService;
 import com.alphascope.indicator.calculator.TechnicalEvidenceCalculator;
 import com.alphascope.indicator.dto.TechnicalWindow;
 import com.alphascope.industry.service.IndustryService;
+import com.alphascope.market.dto.MarketBarDO;
 import com.alphascope.market.dto.TradingDatesQuery;
 import com.alphascope.market.service.MarketService;
 import com.alphascope.portfolio.entity.PortfolioAccount;
@@ -181,8 +183,8 @@ public class SignalServiceImpl implements SignalService {
       row.setRuleVersion(result.ruleVersion());
       row.setSeverity(result.severity());
       row.setStatus(result.status());
-      row.setEvidenceJson(
-          Jsons.write(
+      var ruleEvidence =
+          new java.util.LinkedHashMap<String, Object>(
               Map.of(
                   "values",
                   result.evidence(),
@@ -205,7 +207,19 @@ public class SignalServiceImpl implements SignalService {
                   "technicalVersion",
                   TechnicalEvidenceCalculator.VERSION,
                   "technicalInputHash",
-                  Jsons.hash(Jsons.write(technicalBars)))));
+                  Jsons.hash(Jsons.write(technicalBars))));
+      var inputSources = new java.util.TreeSet<String>();
+      bars.stream().map(MarketBarDO::getSource).filter(Objects::nonNull).forEach(inputSources::add);
+      benchmark.stream()
+          .map(MarketBarDO::getSource)
+          .filter(Objects::nonNull)
+          .forEach(inputSources::add);
+      reports.stream()
+          .map(FinancialReport::getSource)
+          .filter(Objects::nonNull)
+          .forEach(inputSources::add);
+      ruleEvidence.put("inputSources", inputSources);
+      row.setEvidenceJson(Jsons.write(ruleEvidence));
       mapper.save(row);
       var revision = new SignalRevision();
       revision.setInstrumentId(instrumentId);

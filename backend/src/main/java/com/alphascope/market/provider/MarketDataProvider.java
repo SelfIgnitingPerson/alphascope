@@ -2,7 +2,9 @@ package com.alphascope.market.provider;
 
 import com.alphascope.market.dto.DailyBarDto;
 import com.alphascope.market.dto.MarketWindow;
+import com.alphascope.market.dto.ProviderProbeRequest;
 import com.alphascope.market.vo.ProviderChannelView;
+import com.alphascope.market.vo.ProviderProbeSample;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +36,7 @@ public interface MarketDataProvider extends AutoCloseable {
    * @param request 已配置通道、基础能力和精确日期
    * @return 通过数据契约核验的摘要，不写行情库
    */
-  default com.alphascope.market.vo.ProviderProbeSample probe(
-      com.alphascope.market.dto.ProviderProbeRequest request) {
+  default ProviderProbeSample probe(ProviderProbeRequest request) {
     if (!code().equals(request.getChannel())) throw new IllegalArgumentException("通道未配置");
     return ProviderProbeSamples.fetch(this, request);
   }

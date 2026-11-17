@@ -2,6 +2,7 @@ package com.alphascope.signal.controller;
 
 import com.alphascope.common.dto.OptionalDateRangeRequest;
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.ResearchData;
 import com.alphascope.signal.service.SignalService;
 import com.alphascope.signal.vo.SignalView;
 import jakarta.validation.Valid;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class SignalController {
   private final SignalService service;

@@ -51,10 +51,10 @@ public interface JobService {
   long run(String type, LocalDate date);
 
   /**
-   * 为失败或中断任务新增一次带父任务引用的执行尝试，保留旧记录。
+   * 在原任务编号下重新执行，旧状态和阶段保留为执行历史。
    *
    * @param id 任务执行主键
-   * @return 新尝试或当前活动任务的主键
+   * @return 原任务或当前活动任务的主键
    * @throws IllegalArgumentException 原任务不是失败、中断、取消或超时状态
    */
   long retry(long id);
@@ -85,4 +85,16 @@ public interface JobService {
    * @throws NotFoundException 任务主键不存在
    */
   JobView cancel(long id);
+
+  /** 领取当前身份的共享采集任务，与私人日报消费者分离；不并行连接同一供应商。 */
+  void processSharedNext();
+
+  /**
+   * 分页读取已归档执行，旧版重试链也可追溯。
+   *
+   * @param id 原任务编号
+   * @param request 已校验分页
+   * @return 原执行快照
+   */
+  PageResponse<JobView> history(long id, PageRequest request);
 }

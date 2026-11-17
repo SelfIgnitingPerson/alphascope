@@ -32,9 +32,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * 隔离MySQL核验验证队列去重、取消、截止、失联和最终发布围栏，不接入当前业务库。
@@ -54,14 +54,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @EnabledIfEnvironmentVariable(named = "RUN_DB_TESTS", matches = "true")
 class ValidationTaskIntegrationTest {
   @Container
-  static final MySQLContainer<?> MYSQL =
-      new MySQLContainer<>("mysql:8.0.40").withDatabaseName("validation_queue_fixture");
+  static final MySQLContainer MYSQL =
+      new MySQLContainer("mysql:8.0.40").withDatabaseName("validation_queue_fixture");
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry registry) {
     registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
     registry.add("spring.datasource.username", MYSQL::getUsername);
     registry.add("spring.datasource.password", MYSQL::getPassword);
+    registry.add("spring.flyway.user", () -> "root");
+    registry.add("spring.flyway.password", MYSQL::getPassword);
   }
 
   @Autowired ValidationTaskService tasks;

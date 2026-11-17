@@ -28,4 +28,32 @@ public record UniverseCoverageView(
     /** 具体缺项或校验失败，不只返回布尔值。 */
     List<String> missing,
     /** 完整清单的公开来源声明。 */
-    String sourceUrl) {}
+    String sourceUrl,
+    /** 独立日期归档的北交所供应商目录，不据此提升行情覆盖率；旧冻结证据不补算。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        MarketUniverseView bseRoster) {
+  /** 保留既有冻结输入的构造与JSON省略契约，不向旧记录补入新目录。 */
+  public UniverseCoverageView(
+      LocalDate businessDate,
+      String status,
+      ScoreCoverage coverage,
+      String source,
+      Long snapshotId,
+      String contentHash,
+      Map<String, Integer> exchangeMembers,
+      List<String> missing,
+      String sourceUrl) {
+    this(
+        businessDate,
+        status,
+        coverage,
+        source,
+        snapshotId,
+        contentHash,
+        exchangeMembers,
+        missing,
+        sourceUrl,
+        null);
+  }
+}

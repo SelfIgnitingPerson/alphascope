@@ -8,6 +8,7 @@ import com.alphascope.market.dto.MarketBarDO;
 import com.alphascope.market.dto.MarketCacheSettings;
 import com.alphascope.market.dto.TradingDatesQuery;
 import com.alphascope.market.entity.Instrument;
+import com.alphascope.market.vo.BaoStockPolicyView;
 import com.alphascope.market.vo.InstrumentView;
 import com.alphascope.market.vo.MarketAcquisition;
 import com.alphascope.market.vo.ProviderStatusView;
@@ -26,7 +27,7 @@ public interface MarketService {
    *
    * @return 状态损坏时明确返回异常与空计数，不冒充零请求
    */
-  com.alphascope.market.vo.BaoStockPolicyView baoStockPolicy();
+  BaoStockPolicyView baoStockPolicy();
 
   /**
    * 返回当前运行配置是否为演示模式。

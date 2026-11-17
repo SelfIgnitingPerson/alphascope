@@ -106,7 +106,7 @@ public class OperationsStatusServiceImpl implements OperationsStatusService {
               : row == null ? "MISSING" : expected.equals(row.getTradeDate()) ? "FRESH" : "STALE";
       if (expected != null && !"FRESH".equals(status)) {
         String day = market.dayStatus(symbol, expected);
-        if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day)) {
+        if ("SUSPENDED".equals(day) || "NOT_LISTED".equals(day) || "DELISTED".equals(day)) {
           status = "NOT_APPLICABLE";
         }
       }

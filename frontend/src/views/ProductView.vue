@@ -125,14 +125,35 @@ async function changePage(value: number) {
                 {{ data.workspace.capacity.activeValidations }} 个验证任务；验证证据
                 {{ (data.workspace.capacity.evidenceBytes / 1048576).toFixed(2) }} MiB。
               </p>
+              <h3>影响当前研究的问题</h3>
+              <p
+                v-if="!data.runtimeIssues?.length"
+                class="help-text"
+              >
+                当前未发现运行阻断；数据范围与研究效果请分别核对。
+              </p>
               <ul>
                 <li
-                  v-for="issue in data.blockers"
+                  v-for="issue in data.runtimeIssues || []"
                   :key="issue"
                 >
                   {{ issue }}
                 </li>
               </ul>
+              <details class="reading-details">
+                <summary><strong>对外发布前待办（与本机故障分开）</strong></summary>
+                <ul>
+                  <li
+                    v-for="item in data.blockers"
+                    :key="item"
+                  >
+                    {{ item }}
+                  </li>
+                </ul>
+                <p class="help-text">
+                  本机研究可以继续；这些待办需要实际授权、运行和交付证据完成验收。
+                </p>
+              </details>
               <p class="help-text">
                 自动备份{{
                   data.backupEnabled ? '已启用' : '未启用'

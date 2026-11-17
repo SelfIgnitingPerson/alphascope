@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.industry.mapper.ThemeLeaderMapper">
+ <select id="lockTheme" resultType="java.lang.Long">SELECT id FROM theme WHERE code=#{code} FOR UPDATE</select>
+ <select id="latest" resultType="com.alphascope.industry.entity.ThemeLeaderRevision">SELECT id,theme_code,directory_json,content_hash,reviewer_id,created_at FROM theme_leader_revision WHERE theme_code=#{code} ORDER BY id DESC LIMIT 1</select>
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">INSERT INTO theme_leader_revision(theme_code,directory_json,content_hash,reviewer_id) VALUES(#{themeCode},#{directoryJson},#{contentHash},#{reviewerId})</insert>
+</mapper>

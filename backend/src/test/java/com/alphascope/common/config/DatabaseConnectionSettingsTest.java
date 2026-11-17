@@ -12,6 +12,29 @@ import org.junit.jupiter.api.Test;
  */
 class DatabaseConnectionSettingsTest {
   @Test
+  void migrationCannotSilentlyUseApplicationPassword() {
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            DatabaseConnectionSettings.forMigration(
+                Map.of("MYSQL_PASSWORD", "application-fixture")));
+    var result =
+        DatabaseConnectionSettings.forMigration(
+            Map.of(
+                "MYSQL_PASSWORD",
+                "application-fixture",
+                "MYSQL_MIGRATION_PASSWORD",
+                "",
+                "LOCAL_MYSQL_ADMIN_PASSWORD",
+                "admin-fixture",
+                "LOCAL_MYSQL_ADMIN_USER",
+                "root"));
+    assertEquals("root", result.username());
+    assertEquals("admin-fixture", result.password());
+    assertFalse(result.toString().contains("admin-fixture"));
+  }
+
+  @Test
   void defaultsToNativeLocalMysqlWithoutDocker() {
     var result =
         DatabaseConnectionSettings.fromEnvironment(Map.of("MYSQL_PASSWORD", "fixture-secret"));

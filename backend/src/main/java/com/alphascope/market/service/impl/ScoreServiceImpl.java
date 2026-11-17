@@ -10,6 +10,7 @@ import com.alphascope.market.dto.ScoreCoverage;
 import com.alphascope.market.dto.ThemeScoreEvidence;
 import com.alphascope.market.entity.MarketScore;
 import com.alphascope.market.mapper.ScoreMapper;
+import com.alphascope.market.service.FullMarketService;
 import com.alphascope.market.service.MarketBreadthService;
 import com.alphascope.market.service.MarketObservationService;
 import com.alphascope.market.service.MarketService;
@@ -39,6 +40,8 @@ public class ScoreServiceImpl implements ScoreService {
   private final MarketObservationService observations;
   private final IndustryService industry;
   private final UniverseCoverageService universe;
+
+  @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
 
   public ScoreServiceImpl(
       ScoreMapper mapper,
@@ -101,14 +104,15 @@ public class ScoreServiceImpl implements ScoreService {
             valid.isEmpty() ? null : positive / (double) valid.size(),
             valid);
     var view = observations.view(date);
+    var full = fullMarket == null ? null : fullMarket.observation(date);
     return ScopedMarketScoreCalculator.calculate(
         new ScopedScoreInput(
             date,
             universe.inspect(date).coverage(),
             market.synthetic(),
-            view == null ? null : view.analysis(),
+            full != null ? full : view == null ? null : view.analysis(),
             themes,
-            observations.leaders(date)));
+            full != null ? fullMarket.leaders(date) : observations.leaders(date)));
   }
 
   /** {@inheritDoc} */

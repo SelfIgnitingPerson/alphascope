@@ -4,6 +4,7 @@ import com.alphascope.backtest.dto.SignalStatisticsRequest;
 import com.alphascope.backtest.service.BacktestService;
 import com.alphascope.backtest.vo.BacktestView;
 import com.alphascope.common.response.Result;
+import com.alphascope.operations.policy.ResearchData;
 import jakarta.validation.Valid;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class BacktestController {
   private final BacktestService service;

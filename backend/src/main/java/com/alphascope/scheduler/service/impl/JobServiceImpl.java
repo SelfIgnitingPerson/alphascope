@@ -9,6 +9,7 @@ import com.alphascope.common.util.Jsons;
 import com.alphascope.identity.context.TenantContext;
 import com.alphascope.identity.vo.UserView;
 import com.alphascope.market.service.MarketService;
+import com.alphascope.operations.config.ProductProperties;
 import com.alphascope.operations.service.CapacityService;
 import com.alphascope.scheduler.control.JobExecutionControl;
 import com.alphascope.scheduler.dto.CompletedJobQuery;
@@ -56,7 +57,8 @@ public class JobServiceImpl implements JobService {
   private final ResearchPipelineService pipeline;
   private final JobExecutionControl control;
   private final String owner = UUID.randomUUID().toString();
-  private volatile OwnedJob running;
+  private final java.util.concurrent.ConcurrentHashMap<Long, OwnedJob> running =
+      new java.util.concurrent.ConcurrentHashMap<>();
   private TransactionTemplate submissionTx;
   private Clock clock = Clock.systemUTC();
 
@@ -72,6 +74,7 @@ public class JobServiceImpl implements JobService {
     submissionTx.setTimeout(30);
   }
 
+  @Autowired private ProductProperties resourceOptions;
   private CapacityService capacity;
 
   @Autowired
@@ -101,11 +104,14 @@ public class JobServiceImpl implements JobService {
     int size = request.getSize();
 
     request.validate();
+    var query =
+        request instanceof com.alphascope.scheduler.dto.JobQuery q
+            ? q
+            : new com.alphascope.scheduler.dto.JobQuery();
+    query.setPage(page);
+    query.setSize(size);
     return new PageResponse<>(
-        mapper.page(size, (page - 1) * size).stream().map(JobView::from).toList(),
-        mapper.count(),
-        page,
-        size);
+        mapper.page(query).stream().map(JobView::from).toList(), mapper.count(query), page, size);
   }
 
   /** {@inheritDoc} */
@@ -132,6 +138,40 @@ public class JobServiceImpl implements JobService {
         row.getDataStatus());
   }
 
+  /** {@inheritDoc} */
+  @Override
+  public PageResponse<JobView> history(long id, PageRequest request) {
+    var current = get(id);
+    request.validate();
+    var snapshots =
+        mapper.attempts(
+            new com.alphascope.scheduler.dto.JobHistoryQuery(
+                id, request.getSize(), (request.getPage() - 1) * request.getSize()));
+    var items = new java.util.ArrayList<JobView>();
+    for (var row : snapshots) {
+      if (!Jsons.hash(row.getExecutionJson()).equals(row.getContentHash()))
+        throw new IllegalStateException("执行历史指纹不符");
+      items.add(Jsons.read(row.getExecutionJson(), JobView.class));
+    }
+    // 旧版已经产生独立重试记录，保留原ID和关联，不改写冻结报告。
+    var parents = new java.util.ArrayList<JobView>();
+    var seen = new java.util.HashSet<Long>();
+    var parent = current.retryOf();
+    while (parent != null && seen.add(parent) && parents.size() < 1000) {
+      var previous = get(parent);
+      parents.add(previous);
+      parent = previous.retryOf();
+    }
+    long own = mapper.attemptCount(id);
+    long begin = (long) (request.getPage() - 1) * request.getSize();
+    if (items.size() < request.getSize()) {
+      long offset = Math.max(0, begin - own);
+      for (int i = (int) offset; i < parents.size() && items.size() < request.getSize(); i++)
+        items.add(parents.get(i));
+    }
+    return new PageResponse<>(items, own + parents.size(), request.getPage(), request.getSize());
+  }
+
   private String key(String type, LocalDate date) {
     return "alphascope:" + TenantContext.id() + ":" + type + ":" + date;
   }
@@ -152,13 +192,19 @@ public class JobServiceImpl implements JobService {
     if (type == null
         || date == null
         || date.isBefore(LocalDate.of(1990, 1, 1))
-        || !Set.of("DAILY", "WEEKLY").contains(type)
+        || !Set.of("DAILY", "WEEKLY", "MARKET_HISTORY", "MARKET_UNIVERSE", "MARKET_FULL")
+            .contains(type)
         || date.isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))))) {
       throw new BusinessException(
-          ResultCode.INVALID_ARGUMENT, 400, "任务类型须为DAILY或WEEKLY，业务日期须在1990年至上海当前日期之间");
+          ResultCode.INVALID_ARGUMENT, 400, "任务类型须为日报、周报、市场历史或北交所目录或三所截面补齐，业务日期须在1990年至上海当前日期之间");
+    }
+    if (Set.of("MARKET_HISTORY", "MARKET_UNIVERSE", "MARKET_FULL").contains(type)
+        && (TenantContext.user() == null || !"ADMIN".equals(TenantContext.user().role()))) {
+      throw new BusinessException(ResultCode.FORBIDDEN, 403, "市场历史补齐需要管理员权限");
     }
     var now = java.time.ZonedDateTime.now(clock.withZone(ZoneId.of("Asia/Shanghai")));
     if (!market.synthetic()
+        && !"MARKET_UNIVERSE".equals(type)
         && date.equals(now.toLocalDate())
         && now.toLocalTime().isBefore(java.time.LocalTime.of(15, 30))) {
       throw new BusinessException(
@@ -212,9 +258,43 @@ public class JobServiceImpl implements JobService {
             return done;
           }
         }
+        if (retryOf != null) {
+          if (mapper.lockRow(retryOf) == null) throw new NotFoundException("原任务不存在");
+          var previous = get(retryOf);
+          if (JobStatus.valueOf(previous.status()).active()) return retryOf;
+          if (!JobStatus.valueOf(previous.status()).retryable())
+            throw new IllegalArgumentException("该任务已结束，不能重复重试");
+          if (!previous.jobName().equals(type) || !previous.businessDate().equals(date))
+            throw new IllegalArgumentException("重试必须沿用原业务范围");
+          if (capacity != null) capacity.requireJobSlot();
+          var history = new com.alphascope.scheduler.entity.JobAttemptHistory();
+          history.setJobId(retryOf);
+          history.setAttempt(previous.attempt());
+          history.setExecutionJson(Jsons.write(previous));
+          history.setContentHash(Jsons.hash(history.getExecutionJson()));
+          mapper.archiveAttempt(history);
+          long reserved =
+              resourceOptions == null
+                  ? 0
+                  : Set.of("DAILY", "WEEKLY").contains(type)
+                      ? resourceOptions.getReportReservationBytes()
+                      : resourceOptions.getCollectionReservationBytes();
+          if (mapper.requeue(
+                  new com.alphascope.scheduler.dto.JobRetryCommand(
+                      retryOf, mapper.attempt(type, date), market.dataScope(), hash, reserved))
+              != 1) throw new IllegalStateException("任务状态已变化，请刷新");
+          mapper.clearStages(retryOf);
+          return retryOf;
+        }
         if (capacity != null) capacity.requireJobSlot();
         JobExecution row = new JobExecution();
         row.setJobName(type);
+        row.setReservationBytes(
+            resourceOptions == null
+                ? 0
+                : Set.of("MARKET_HISTORY", "MARKET_UNIVERSE", "MARKET_FULL").contains(type)
+                    ? resourceOptions.getCollectionReservationBytes()
+                    : resourceOptions.getReportReservationBytes());
         row.setDataScope(market.dataScope());
         row.setBusinessDate(date);
         row.setInputHash(hash);
@@ -247,6 +327,7 @@ public class JobServiceImpl implements JobService {
   @Override
   public long retry(long id) {
     var old = get(id);
+    if (JobStatus.valueOf(old.status()).active()) return id;
     if (!JobStatus.valueOf(old.status()).retryable()) {
       throw new IllegalArgumentException("只能重试失败、中断、取消或超时任务");
     }
@@ -262,8 +343,7 @@ public class JobServiceImpl implements JobService {
   /** {@inheritDoc} */
   @Override
   public void heartbeat() {
-    OwnedJob current = running;
-    if (current != null)
+    for (OwnedJob current : running.values())
       try (var ignored = TenantContext.bind(current.user())) {
         mapper.heartbeat(current.id(), owner);
       }
@@ -307,7 +387,16 @@ public class JobServiceImpl implements JobService {
 
   /** {@inheritDoc} */
   @Override
-  public synchronized void process(long id) {
+  public void processSharedNext() {
+    if (TenantContext.user() != null && !"ADMIN".equals(TenantContext.user().role())) return;
+    recover();
+    var id = mapper.pendingShared();
+    if (id != null) process(id);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public void process(long id) {
     var job = get(id);
     if (!"PENDING".equals(job.status())) {
       return;
@@ -328,17 +417,25 @@ public class JobServiceImpl implements JobService {
         if (mapper.claim(id, owner) != 1) {
           return;
         }
-        running =
+        running.put(
+            id,
             new OwnedJob(
                 id,
                 TenantContext.user() == null
                     ? new UserView(1, "local-owner", "ADMIN")
-                    : TenantContext.user());
+                    : TenantContext.user()));
         boolean restoreInterrupt = false;
         var previousContext = MDC.getCopyOfContextMap();
         MDC.put("jobId", String.valueOf(id));
         try {
-          var result = pipeline.run(new PipelineCommand(id, type, requested, job.retryOf(), owner));
+          var result =
+              pipeline.run(
+                  new PipelineCommand(
+                      id,
+                      type,
+                      requested,
+                      mapper.attemptCount(id) > 0 ? null : job.retryOf(),
+                      owner));
           restoreInterrupt = Thread.interrupted();
           if (result.inputHash() != null) {
             mapper.inputHash(id, result.inputHash());
@@ -362,7 +459,7 @@ public class JobServiceImpl implements JobService {
           }
         }
       } finally {
-        running = null;
+        running.remove(id);
         boolean interrupted = Thread.interrupted();
         try {
           locks.unlock(k);

@@ -47,4 +47,20 @@ public interface MarketObservationMapper {
    * @param snapshot 交易日、内容指纹、分项分析 JSON、输入证据 JSON 及实际采集时间
    */
   void save(MarketObservationSnapshot snapshot);
+
+  /**
+   * 精确读取三所观察；历史不足不换用沪深范围。
+   *
+   * @param date 业务日期
+   * @return 全A观察或null
+   */
+  MarketObservationSnapshot fullForDate(LocalDate date);
+
+  /**
+   * 批量读取同源且覆盖窗口的因子，避免每个证券重复查询。
+   *
+   * @param window 范围、来源与核验截止
+   * @return 按证券及新版本倒序的已核验因子
+   */
+  java.util.List<MarketFactorSnapshot> factorsForWindow(ResearchFactorRequest window);
 }

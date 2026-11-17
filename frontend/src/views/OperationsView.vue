@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import LifecyclePanel from '../components/market/LifecyclePanel.vue';
+import FullMarketPanel from '../components/market/FullMarketPanel.vue';
+import StorageBudgetPanel from '../components/market/StorageBudgetPanel.vue';
+import MarketHistoryPanel from '../components/market/MarketHistoryPanel.vue';
+import BseUniversePanel from '../components/market/BseUniversePanel.vue';
 import { computed, watch, onScopeDispose, ref } from 'vue';
 import AsyncState from '../components/common/AsyncState.vue';
 import SectionCard from '../components/common/SectionCard.vue';
@@ -61,6 +66,17 @@ const labels: Record<string, string> = {
 };
 </script>
 <template>
+  <FullMarketPanel :refresh-token="refreshToken" />
+  <StorageBudgetPanel :refresh-token="refreshToken" />
+  <LifecyclePanel />
+  <BseUniversePanel
+    :date="date"
+    :refresh-token="refreshToken"
+  />
+  <MarketHistoryPanel
+    :date="date"
+    :refresh-token="refreshToken"
+  />
   <AsyncState
     :loading="loading"
     :error="error"

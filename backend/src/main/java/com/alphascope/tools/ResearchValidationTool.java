@@ -9,7 +9,6 @@ import com.alphascope.backtest.vo.SignalStatisticView;
 import com.alphascope.backtest.vo.ValidationTaskView;
 import com.alphascope.common.util.Jsons;
 import java.io.IOException;
-import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
@@ -43,7 +42,7 @@ public final class ResearchValidationTool {
     try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
       var submit =
           HttpRequest.newBuilder(
-                  URI.create("http://127.0.0.1:8080/api/v1/admin/backtest-validation-tasks"))
+                  LocalApiEndpoint.resolve("/api/v1/admin/backtest-validation-tasks"))
               .timeout(Duration.ofSeconds(30))
               .header("Content-Type", "application/json")
               .POST(BodyPublishers.ofString(Jsons.write(request)))
@@ -66,9 +65,8 @@ public final class ResearchValidationTool {
                 data(
                         client,
                         HttpRequest.newBuilder(
-                                URI.create(
-                                    "http://127.0.0.1:8080/api/v1/backtest/validation-tasks/"
-                                        + task.id()))
+                                LocalApiEndpoint.resolve(
+                                    "/api/v1/backtest/validation-tasks/" + task.id()))
                             .timeout(Duration.ofSeconds(30))
                             .GET()
                             .build())
@@ -76,22 +74,52 @@ public final class ResearchValidationTool {
                 ValidationTaskView.class);
       }
       require("SUCCESS".equals(task.status()), "验证未成功：" + task.status() + " " + task.message());
-      var response =
-          client.send(
-              HttpRequest.newBuilder(
-                      URI.create(
-                          "http://127.0.0.1:8080/api/v1/backtest/validation-tasks/"
-                              + task.id()
-                              + "/evidence"))
-                  .timeout(Duration.ofSeconds(60))
-                  .GET()
-                  .build(),
-              BodyHandlers.ofString(StandardCharsets.UTF_8));
-      require(
-          response.statusCode() == 200 && Jsons.hash(response.body()).equals(task.evidenceSha256()),
-          "下载证据响应或指纹不一致");
-      export(root, Jsons.read(response.body(), ResearchValidationView.class));
+      exportTask(root, client, task);
     }
+  }
+
+  /**
+   * 导出一项已经完成的验证，不重新提交任务、不采集行情，也不改变原证据。
+   *
+   * @param root 项目根目录，替换唯一的研究验收交付文件
+   * @param taskId 已完成验证的任务编号
+   * @throws Exception 任务不属于当前用户、未成功或完整性核对失败
+   */
+  public static void exportTask(Path root, long taskId) throws Exception {
+    require(taskId > 0, "验证编号必须大于0");
+    try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
+      var task =
+          Jsons.read(
+              data(
+                      client,
+                      HttpRequest.newBuilder(
+                              LocalApiEndpoint.resolve(
+                                  "/api/v1/backtest/validation-tasks/" + taskId))
+                          .timeout(Duration.ofSeconds(30))
+                          .GET()
+                          .build())
+                  .toString(),
+              ValidationTaskView.class);
+      require("SUCCESS".equals(task.status()), "仅可导出已完成验证：" + task.status());
+      exportTask(root, client, task);
+    }
+  }
+
+  private static void exportTask(Path root, HttpClient client, ValidationTaskView task)
+      throws Exception {
+    var response =
+        client.send(
+            HttpRequest.newBuilder(
+                    LocalApiEndpoint.resolve(
+                        "/api/v1/backtest/validation-tasks/" + task.id() + "/evidence"))
+                .timeout(Duration.ofSeconds(60))
+                .GET()
+                .build(),
+            BodyHandlers.ofString(StandardCharsets.UTF_8));
+    require(
+        response.statusCode() == 200 && Jsons.hash(response.body()).equals(task.evidenceSha256()),
+        "下载证据响应或指纹不一致");
+    export(root, Jsons.read(response.body(), ResearchValidationView.class));
   }
 
   private static com.fasterxml.jackson.databind.JsonNode data(
@@ -243,11 +271,56 @@ public final class ResearchValidationTool {
                       .forEach(
                           (horizon, rules) ->
                               rules.forEach((rule, stat) -> append(text, rule, horizon, stat))));
+      var simulation = stock.replay().strategy();
+      text.append("\n### 两月量价组合执行模拟\n\n");
+      if (simulation == null) {
+        text.append("原验证未保存该扩展，不在导出时补算。\n");
+      } else {
+        text.append("方法：")
+            .append(simulation.version())
+            .append("。收盘形成条件，次个交易日开盘尝试执行；各段独立起仓。\n\n")
+            .append("| 区间 | 扣费收益 | 最大回撤 | 基准收益 | 卖出次数 | 跳过委托 | 证据结论 |\n")
+            .append("| --- | --- | --- | --- | --- | --- | --- |\n");
+        for (var period : simulation.periods()) {
+          text.append("| ")
+              .append(
+                  switch (period.label()) {
+                    case "ALL" -> "全区间";
+                    case "DISCOVERY" -> "较早区间";
+                    case "HOLDOUT" -> "较晚留出";
+                    default -> period.label();
+                  })
+              .append(" | ")
+              .append(percent(period.netReturn()))
+              .append(" | ")
+              .append(percent(period.maximumDrawdown()))
+              .append(" | ")
+              .append(percent(period.benchmarkReturn()))
+              .append(" | ")
+              .append(period.completedTrades())
+              .append(" | ")
+              .append(period.skippedOrders())
+              .append(" | ")
+              .append(
+                  "INCOMPLETE".equals(period.status())
+                      ? "证据不足：" + period.reason()
+                      : period.completedTrades() == 0
+                          ? "没有完成卖出样本，不能据此认定策略有效"
+                          : "仅为执行假设下的回顾，卖出次数不是独立样本量")
+              .append(" |\n");
+        }
+        text.append("\n");
+        simulation.limitations().forEach(value -> text.append("- ").append(value).append("\n"));
+      }
     }
     text.append("\n## 本次仍不足以确认有效的原因\n\n");
     report.blockers().forEach(value -> text.append("- ").append(value).append("\n"));
     text.append("\n## 方法边界\n\n");
     report.limitations().forEach(value -> text.append("- ").append(value).append("\n"));
+    text.append("\n## 如何继续检验\n\n")
+        .append("先固定股票池、规则和执行参数并保存时间，再收集此后尚未观察的数据；不得看到结果后筛选股票或修改阈值。当前较晚区间仍是回顾切分，不能作为真正前瞻结果。\n\n")
+        .append("补齐历史ST、逐日价格限制、停复牌和公司行动账务，核验可成交性；独立报告扣费收益、基准、回撤及未成交情况。当前不完整区间不可剔除后只展示有利股票。\n\n")
+        .append("需要跨市场阶段的足量、独立证据；软件测试通过、复算一致、少数正收益或固定20次样本提示线，都不能替代效果检验。此报告保持尚未证实，不自动产生实盘结论。\n");
     text.append(
         "\n完整输入和结果保存于同目录research-validation.json；离线执行 `bash scripts/tools.sh reproduce-research-validation` 核对SHA256并复算。它是本次研究证据，不是数据库备份。\n");
     return text.toString();

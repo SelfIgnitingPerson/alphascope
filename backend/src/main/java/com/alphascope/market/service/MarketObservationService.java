@@ -27,6 +27,13 @@ public interface MarketObservationService {
   void sync(LocalDate date);
 
   /**
+   * 仅用已保存截面与已核验因子形成观察，不在私人报告中启动全市场网络补齐。
+   *
+   * @param date 业务日期
+   */
+  void calculateStored(LocalDate date);
+
+  /**
    * 只读返回不晚于业务日的最近已保存观察及采集状态，不触发上游回补。
    *
    * @param date 研究或记录对应的业务日期，上海时区

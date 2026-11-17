@@ -4,6 +4,7 @@ import com.alphascope.common.config.AlphaScopeProperties;
 import com.alphascope.common.util.Jsons;
 import com.alphascope.operations.dto.AlertWrite;
 import com.alphascope.operations.mapper.AlertMapper;
+import com.alphascope.operations.policy.ReleaseReadinessPolicy;
 import com.alphascope.operations.service.AlertPublisher;
 import com.alphascope.operations.service.CapacityService;
 import com.alphascope.operations.service.OperationsStatusService;
@@ -79,10 +80,10 @@ public class ProductStatusServiceImpl implements ProductStatusService {
   public ProductStatusView product() {
     var workspace = workspace();
     var permissions = licenses.status();
-    var blockers = new ArrayList<>(workspace.issues());
+    var blockers = new ArrayList<String>();
     for (var source : permissions)
       if (!source.status().equals("DECLARED_BY_OPERATOR"))
-        blockers.add(source.source() + "许可状态：" + source.status());
+        blockers.add(ReleaseReadinessPolicy.licenseIssue(source));
     blockers.add("需要在实际域名、服务负载和连续交易日下验收；本机测试不证明公网运行或模型稳定有效");
     String hash;
     try (var stream = getClass().getResourceAsStream("/db/migration/V1__baseline.sql")) {
@@ -99,6 +100,7 @@ public class ProductStatusServiceImpl implements ProductStatusService {
         hash,
         configuration.getOperations().isBackupEnabled(),
         licenses.isEnforced(),
+        workspace.issues(),
         blockers);
   }
 

@@ -1,6 +1,5 @@
 package com.alphascope.common.config;
 
-import com.alphascope.common.exception.BusinessException;
 import com.alphascope.common.response.Result;
 import com.alphascope.common.response.ResultCode;
 import com.alphascope.common.util.Jsons;
@@ -9,7 +8,6 @@ import com.alphascope.identity.context.TenantContext;
 import com.alphascope.identity.controller.AuthController;
 import com.alphascope.identity.service.AuthService;
 import com.alphascope.identity.vo.UserView;
-import com.alphascope.operations.service.SourceLicenseService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,12 +33,6 @@ public class RequestFilter extends OncePerRequestFilter {
   private final ConcurrentHashMap<String, Long> writes = new ConcurrentHashMap<>();
   private final AccessProperties properties;
   private final AuthService auth;
-  private SourceLicenseService licenses;
-
-  @Autowired
-  public void setLicenses(SourceLicenseService licenses) {
-    this.licenses = licenses;
-  }
 
   /** 供隔离协议测试构建本地过滤器。 */
   public RequestFilter() {
@@ -133,15 +125,6 @@ public class RequestFilter extends OncePerRequestFilter {
         reject(s, 403, ResultCode.FORBIDDEN, "此操作需要管理员权限", id);
         return;
       }
-      if (publicMode && licenses != null && licensedPath(path)) {
-        try {
-          licenses.requireDisplay();
-          if (path.endsWith("/evidence")) licenses.requireAll("EXPORT");
-        } catch (BusinessException error) {
-          reject(s, error.getStatus(), error.getCode(), error.getMessage(), id);
-          return;
-        }
-      }
       if (write && !path.endsWith("/cancel") && !path.equals("/api/v1/auth/logout")) {
         // 成功接收后才更新限频时刻，取消不受普通写请求节流影响。
         String key = Long.toString(user.id());
@@ -174,15 +157,6 @@ public class RequestFilter extends OncePerRequestFilter {
         || path.startsWith("/api/v1/admin/backtest-experiments/")
         || path.equals("/api/v1/admin/backtest-validation-tasks")
         || path.startsWith("/api/v1/admin/backtest-validation-tasks/"));
-  }
-
-  private boolean licensedPath(String path) {
-    return path.startsWith("/api/v1/backtest/")
-        || path.startsWith("/api/v1/market/")
-        || path.startsWith("/api/v1/themes")
-        || path.startsWith("/api/v1/expectations")
-        || path.startsWith("/api/v1/reports")
-        || path.matches("/api/v1/instruments/[^/]+/(bars|financials)");
   }
 
   private boolean loopback(String ip) {

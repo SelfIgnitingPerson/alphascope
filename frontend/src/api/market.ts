@@ -69,6 +69,12 @@ export const getUniverseCoverage = (date: string, signal?: AbortSignal) =>
     signal,
   });
 
+/** 只读当前选择日期的北交所在市目录，不因刷新采集或用其他日期替代。 */
+export const getMarketUniverse = (date: string, signal?: AbortSignal) =>
+  api<import('../types/universe').MarketUniverse>(`/market/universe?${query({ date })}`, {
+    signal,
+  });
+
 /** 只读本机BaoStock预算与保护状态，不触发供应商请求。 */
 export const getBaoStockPolicy = (signal?: AbortSignal) =>
   api<import('../types/market').BaoStockPolicy>('/market/providers/baostock-policy', { signal });

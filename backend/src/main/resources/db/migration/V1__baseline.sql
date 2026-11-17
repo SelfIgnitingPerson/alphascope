@@ -1,6 +1,6 @@
 -- AlphaScope 当前开发基线：唯一数据库初始化 SQL。
 -- 金额：人民币元；数量：股；比例：小数；业务时区：Asia/Shanghai。
--- 直接创建当前41张表、约束和索引，不包含历次ALTER/旧数据回填。
+-- 直接创建当前45张表、约束和索引，不包含历次ALTER/旧数据回填。
 -- 初始数据仅含标的、主题和自选，不包含真实行情、个人持仓或示例报告。
 -- 首次启动由Flyway执行；不可直接在已有业务库重复执行。
 -- 开发期基线重整须先备份、验证结构一致并显式重新建立迁移基线；不自动跳过校验。
@@ -13,6 +13,11 @@ CREATE TABLE `instrument` (
   `exchange` varchar(8) NOT NULL COMMENT '交易所标识：SH上海，SZ深圳',
   `type` varchar(16) NOT NULL COMMENT '标的类型：STOCK股票，INDEX指数',
   `listed_at` date DEFAULT NULL COMMENT '已知上市日期；NULL表示尚未登记，不据此伪造上市前行情',
+  `delisted_at` date DEFAULT NULL COMMENT '已明确退市日期，缺证据时为空，不从行情缺口推断',
+  `lifecycle_source` varchar(64) DEFAULT NULL COMMENT '生命周期元数据实际来源，人工补录保留公开依据',
+  `lifecycle_observed_at` datetime(6) DEFAULT NULL COMMENT '生命周期资料实际核验时刻，上海时区',
+  `lifecycle_evidence_json` longtext COMMENT '上市及退市日期的原始响应、公开链接和人工定位',
+  `lifecycle_hash` char(64) DEFAULT NULL COMMENT '生命周期原文精确文本SHA256',
   `active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '标的启用标志：1启用，0停用',
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '记录创建时间，上海时区',
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录最后更新时间，上海时区',
@@ -61,6 +66,7 @@ CREATE TABLE `analysis_report` (
   `job_id` bigint DEFAULT NULL COMMENT '生成该报告的任务ID；旧记录或直接生成时可为NULL',
   KEY `idx_tenant_scope` (`tenant_id`),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_analysis_report_tenant_id` (`tenant_id`,`id`),
   UNIQUE KEY `report_type` (`tenant_id`,`report_type`,`business_date`,`revision`),
   KEY `idx_report_archive` (`is_synthetic`,`report_type`,`business_date`,`revision`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='研究报告及不可覆盖的业务修订';
@@ -260,7 +266,7 @@ CREATE TABLE `instrument_theme` (
 CREATE TABLE `job_execution` (
   `tenant_id` bigint NOT NULL DEFAULT '1' COMMENT '所属用户的私人研究范围，不接受客户端指定',
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录主键，自增生成',
-  `job_name` varchar(64) NOT NULL COMMENT '任务类型：DAILY日报，WEEKLY周报',
+  `job_name` varchar(64) NOT NULL COMMENT '任务类型：DAILY日报，WEEKLY周报，MARKET_HISTORY市场历史补齐，MARKET_UNIVERSE北交所目录补齐，MARKET_FULL三所证据核验',
   `business_date` date NOT NULL COMMENT '本次研究或采集的业务日期，按上海时区记录',
   `attempt` int NOT NULL COMMENT '同任务类型和业务日期的尝试序号，从1递增',
   `status` varchar(32) NOT NULL COMMENT '任务执行状态：等待、运行、成功、跳过、失败、中断、取消请求、超时请求、已取消、已超时；数据质量独立记录',
@@ -276,7 +282,9 @@ CREATE TABLE `job_execution` (
   `retry_of` bigint DEFAULT NULL COMMENT '被重试的原任务ID；首次提交时为空',
   `data_status` varchar(32) DEFAULT NULL COMMENT '任务数据质量：AVAILABLE完整、PARTIAL部分、UNAVAILABLE缺失、NOT_APPLICABLE不适用、UNKNOWN未核验；旧记录为空',
   KEY `idx_tenant_scope` (`tenant_id`),
+  `reservation_bytes` bigint NOT NULL DEFAULT 0 COMMENT '活动任务保守预留的证据字节数，终态由预算触发器释放',
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_job_execution_tenant_id` (`tenant_id`,`id`),
   UNIQUE KEY `job_name` (`tenant_id`,`job_name`,`business_date`,`attempt`),
   KEY `idx_job_scope` (`job_name`,`business_date`,`data_scope`,`status`),
   KEY `idx_job_queue` (`status`,`id`),
@@ -296,11 +304,27 @@ CREATE TABLE `job_stage` (
   `data_status` varchar(32) DEFAULT NULL COMMENT '独立于阶段执行状态的数据质量；运行中或旧记录为空',
   `details_json` json DEFAULT NULL COMMENT '阶段核验、实际进度、硬截止和恢复来源JSON；旧记录为空',
   KEY `idx_tenant_scope` (`tenant_id`),
+  KEY `idx_parent_tenant` (`tenant_id`,`job_id`),
   KEY `idx_fk_scope_job_id` (`job_id`),
   PRIMARY KEY (`id`),
   UNIQUE KEY `job_id` (`tenant_id`,`job_id`,`stage_name`),
-  CONSTRAINT `job_stage_ibfk_1` FOREIGN KEY (`job_id`) REFERENCES `job_execution` (`id`)
+  CONSTRAINT `job_stage_ibfk_1` FOREIGN KEY (`tenant_id`,`job_id`) REFERENCES `job_execution` (`tenant_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='研究任务各阶段执行状态与错误审计';
+
+-- job_attempt_history：同一任务重试前的不可变执行快照
+CREATE TABLE `job_attempt_history` (
+  `tenant_id` bigint NOT NULL DEFAULT '1' COMMENT '所属用户空间，由服务端注入',
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '历史执行快照主键',
+  `job_id` bigint NOT NULL COMMENT '稳定的任务主键，关联job_execution.id',
+  `attempt` int NOT NULL COMMENT '该快照对应的原执行序号',
+  `execution_json` longtext NOT NULL COMMENT '重试前的状态、原因、时刻、来源与阶段快照，不随新执行覆盖',
+  `content_hash` char(64) NOT NULL COMMENT '执行快照原文SHA256，用于读取时校验',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '快照实际保存时间，上海时区',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_job_attempt` (`tenant_id`,`job_id`,`attempt`),
+  KEY `idx_attempt_parent` (`job_id`),
+  CONSTRAINT `fk_job_attempt_parent` FOREIGN KEY (`tenant_id`,`job_id`) REFERENCES `job_execution` (`tenant_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='同任务重试的不可变执行快照，主列表沿用原编号';
 
 -- market_breadth_snapshot：沪深A股当日成交额与涨跌家数的不可变截面
 CREATE TABLE `market_breadth_snapshot` (
@@ -317,6 +341,21 @@ CREATE TABLE `market_breadth_snapshot` (
   KEY `idx_market_breadth_latest` (`universe_scope`,`source`,`trade_date`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='沪深A股当日成交额与涨跌家数的不可变截面';
 
+-- market_universe_snapshot：当前在市目录的独立归档，清单完整不代表行情或历史完整
+CREATE TABLE `market_universe_snapshot` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '不可变目录归档主键',
+  `business_date` date NOT NULL COMMENT '实际目录观测的上海日期，不由当前名单倒填历史',
+  `universe_scope` varchar(32) NOT NULL COMMENT '目录范围；BSE_A为北交所在市A股',
+  `source` varchar(64) NOT NULL COMMENT '实际目录来源；SINA为新浪在市目录，不冒充交易所官方',
+  `content_hash` char(64) NOT NULL COMMENT '成员文本、换行和证据文本组合的SHA256',
+  `members_json` longtext NOT NULL COMMENT '已核验代码与名称的精确JSON文本',
+  `evidence_json` longtext NOT NULL COMMENT '全部分页、前后计数、首屏确认及真实观测区间的精确JSON文本',
+  `observed_at` datetime(6) NOT NULL COMMENT '原始核验结束时刻，上海时区；读取缓存不更新',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_market_universe_revision` (`business_date`,`universe_scope`,`source`,`content_hash`),
+  KEY `idx_market_universe_date` (`business_date`,`universe_scope`,`source`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='不可变的供应商在市证券清单及完整分页证据，不代替历史行情';
+
 -- market_data_revision：不可变行情及复权因子修订：来源或模式切换不覆盖
 CREATE TABLE `market_data_revision` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录主键，自增生成',
@@ -332,6 +371,7 @@ CREATE TABLE `market_data_revision` (
   `recorded_at` datetime(6) DEFAULT NULL COMMENT '该不可变修订实际入库时刻；旧记录未知为NULL，不倒填为供应商采集时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_revision_batch` (`instrument_id`,`trade_date`,`source`,`is_synthetic`,`batch_id`),
+  KEY `idx_revision_batch_source` (`batch_id`,`source`),
   KEY `idx_revision_input` (`instrument_id`,`is_synthetic`,`trade_date`,`id`),
   CONSTRAINT `market_data_revision_ibfk_1` FOREIGN KEY (`instrument_id`) REFERENCES `instrument` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='不可变行情及复权因子修订：来源或模式切换不覆盖';
@@ -396,10 +436,11 @@ CREATE TABLE `notification_log` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '记录创建时间，上海时区',
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录最后更新时间，上海时区',
   KEY `idx_tenant_scope` (`tenant_id`),
+  KEY `idx_parent_tenant` (`tenant_id`,`report_id`),
   PRIMARY KEY (`id`),
   UNIQUE KEY `idempotency_key` (`tenant_id`,`idempotency_key`),
   KEY `report_id` (`report_id`),
-  CONSTRAINT `notification_log_ibfk_1` FOREIGN KEY (`report_id`) REFERENCES `analysis_report` (`id`)
+  CONSTRAINT `notification_log_ibfk_1` FOREIGN KEY (`tenant_id`,`report_id`) REFERENCES `analysis_report` (`tenant_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='本地通知审计及去重记录：当前不发送外部消息';
 
 -- portfolio_account：人工登记的研究账户资产总额：未知时不推算集中度
@@ -437,8 +478,9 @@ CREATE TABLE `report_input_snapshot` (
   `report_id` bigint NOT NULL COMMENT '报告主键，关联analysis_report.id',
   `input_json` json NOT NULL COMMENT '本报告采用的行情、指标、规则、财报、主题、预测及分析结果JSON',
   KEY `idx_tenant_scope` (`tenant_id`),
+  KEY `idx_parent_tenant` (`tenant_id`,`report_id`),
   PRIMARY KEY (`report_id`),
-  CONSTRAINT `report_input_snapshot_ibfk_1` FOREIGN KEY (`report_id`) REFERENCES `analysis_report` (`id`)
+  CONSTRAINT `report_input_snapshot_ibfk_1` FOREIGN KEY (`tenant_id`,`report_id`) REFERENCES `analysis_report` (`tenant_id`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='生成报告时冻结的完整输入证据';
 
 -- report_source：报告与来源材料或数据记录的引用关系
@@ -451,10 +493,11 @@ CREATE TABLE `report_source` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '记录创建时间，上海时区',
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录最后更新时间，上海时区',
   KEY `idx_tenant_scope` (`tenant_id`),
+  KEY `idx_parent_tenant` (`tenant_id`,`report_id`),
   PRIMARY KEY (`id`),
   KEY `report_id` (`report_id`),
   KEY `source_document_id` (`source_document_id`),
-  CONSTRAINT `report_source_ibfk_1` FOREIGN KEY (`report_id`) REFERENCES `analysis_report` (`id`),
+  CONSTRAINT `report_source_ibfk_1` FOREIGN KEY (`tenant_id`,`report_id`) REFERENCES `analysis_report` (`tenant_id`,`id`),
   CONSTRAINT `report_source_ibfk_2` FOREIGN KEY (`source_document_id`) REFERENCES `source_document` (`id`),
   CONSTRAINT `report_source_chk_1` CHECK (((`source_document_id` is not null) or (`data_reference` is not null)))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='报告与来源材料或数据记录的引用关系';
@@ -565,23 +608,6 @@ CREATE TABLE `trading_calendar` (
   UNIQUE KEY `uk_calendar_mode_source` (`trade_date`,`exchange`,`is_synthetic`,`source`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='供应商提供的交易所开闭市日历：不按星期伪造休市';
 
--- valuation_snapshot：标的每日估值快照结构：当前未自动采集
-CREATE TABLE `valuation_snapshot` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录主键，自增生成',
-  `instrument_id` bigint NOT NULL COMMENT '标的主键，关联instrument.id',
-  `trade_date` date NOT NULL COMMENT '交易日期，按上海时区记录',
-  `pe_ttm` decimal(18,8) DEFAULT NULL COMMENT '滚动十二个月市盈率，单位倍；缺失或不适用时为空',
-  `pb` decimal(18,8) DEFAULT NULL COMMENT '市净率，单位倍；缺失或不适用时为空',
-  `ps_ttm` decimal(18,8) DEFAULT NULL COMMENT '滚动十二个月市销率，单位倍；缺失或不适用时为空',
-  `market_cap` decimal(24,4) DEFAULT NULL COMMENT '总市值，人民币元；缺失时为空',
-  `source` varchar(64) NOT NULL COMMENT '实际数据供应商或人工来源标识',
-  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '记录创建时间，上海时区',
-  `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录最后更新时间，上海时区',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `instrument_id` (`instrument_id`,`trade_date`),
-  CONSTRAINT `valuation_snapshot_ibfk_1` FOREIGN KEY (`instrument_id`) REFERENCES `instrument` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='标的每日估值快照结构：当前未自动采集';
-
 -- watchlist：当前自选研究范围与关注优先级
 CREATE TABLE `watchlist` (
   `tenant_id` bigint NOT NULL DEFAULT '1' COMMENT '所属用户的私人研究范围，不接受客户端指定',
@@ -676,6 +702,7 @@ CREATE TABLE `research_validation_task` (
   `deadline_at` datetime(6) DEFAULT NULL COMMENT '执行硬截止时间，上海时区，不随心跳延长',
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '记录最后更新时间，上海时区',
   KEY `idx_tenant_scope` (`tenant_id`),
+  `reservation_bytes` bigint NOT NULL DEFAULT 0 COMMENT '活动任务保守预留的证据字节数，终态由预算触发器释放',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_validation_active` (`tenant_id`,`active_key`),
   KEY `idx_validation_queue` (`status`,`id`),
@@ -742,3 +769,1286 @@ CREATE TABLE `service_alert` (
  `resolved_at` datetime(6) DEFAULT NULL COMMENT '完整检查确认恢复的时刻，未恢复为空',
  PRIMARY KEY (`id`),UNIQUE KEY `uk_alert_issue` (`tenant_id`,`issue_key`),KEY `idx_alert_scope` (`tenant_id`,`resolved_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='当前账号运行问题的持久发现及恢复生命周期';
+
+
+CREATE TABLE `research_plan` (
+ `id` bigint NOT NULL AUTO_INCREMENT COMMENT '个人研究计划主键',
+ `tenant_id` bigint NOT NULL DEFAULT 1 COMMENT '所属用户，由会话隔离自动写入',
+ `symbol` varchar(16) NOT NULL COMMENT '证券代码，含交易所后缀',
+ `horizon` varchar(16) NOT NULL COMMENT '研究周期SHORT、MEDIUM、LONG',
+ `action_code` varchar(64) NOT NULL COMMENT '冻结行动方案代码',
+ `snapshot_json` longtext NOT NULL COMMENT '原始研究精确JSON文本，不随新行情覆盖',
+ `snapshot_hash` char(64) NOT NULL COMMENT '原始研究文本SHA256',
+ `archived` tinyint(1) NOT NULL DEFAULT 0 COMMENT '用户是否已归档，归档不删除证据',
+ `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '计划实际保存时间，上海时区',
+ PRIMARY KEY (`id`),
+ UNIQUE KEY `uk_plan_scope` (`tenant_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户冻结研究计划';
+
+CREATE TABLE `research_plan_review` (
+ `id` bigint NOT NULL AUTO_INCREMENT COMMENT '追加复核主键',
+ `tenant_id` bigint NOT NULL DEFAULT 1 COMMENT '所属用户，由会话隔离自动写入',
+ `plan_id` bigint NOT NULL COMMENT '所属原始计划主键',
+ `review_json` longtext NOT NULL COMMENT '本次复核精确JSON，追加而不覆盖',
+ `review_hash` char(64) NOT NULL COMMENT '本次复核文本SHA256',
+ `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '复核保存时间，上海时区',
+ PRIMARY KEY (`id`),
+ KEY `idx_review_scope` (`tenant_id`,`plan_id`,`id`),
+ CONSTRAINT `fk_review_plan` FOREIGN KEY (`tenant_id`,`plan_id`) REFERENCES `research_plan` (`tenant_id`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人计划不可变复核记录';
+
+
+CREATE TABLE `theme_leader_revision` (
+ `id` bigint NOT NULL AUTO_INCREMENT COMMENT '不可变目录修订主键',
+ `theme_code` varchar(64) NOT NULL COMMENT '已登记主题代码',
+ `directory_json` longtext NOT NULL COMMENT '核心目录精确JSON，不修改原披露成分',
+ `content_hash` char(64) NOT NULL COMMENT '目录文本SHA256',
+ `reviewer_id` bigint NOT NULL COMMENT '实际维护管理员主键',
+ `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) COMMENT '目录保存时间，上海时区',
+ PRIMARY KEY (`id`),
+ KEY `idx_leader_revision` (`theme_code`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='当前核心企业目录不可变修订';
+
+-- storage_budget：原子证据计量及活动任务预留；0平台，-1默认个人额度，正数用户空间
+CREATE TABLE `storage_budget` (
+ `scope_id` bigint NOT NULL COMMENT '0为平台总量，-1为默认个人额度，正数为用户空间',
+ `used_bytes` bigint NOT NULL DEFAULT 0 COMMENT '全部受计量证据正文的数据库OCTET_LENGTH总量，不是物理磁盘占用',
+ `reserved_bytes` bigint NOT NULL DEFAULT 0 COMMENT '活动日报、共享采集及验证任务的保守预留，终态原子释放',
+ `limit_bytes` bigint NOT NULL COMMENT '该范围证据使用与预留的总上限，单位字节',
+ `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) COMMENT '计量或额度最后变更时刻，上海时区',
+ PRIMARY KEY (`scope_id`),
+ CONSTRAINT `chk_storage_nonnegative` CHECK (`used_bytes`>=0 AND `reserved_bytes`>=0 AND `limit_bytes`>0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='证据正文的增量计量与写入预算，不保存研究内容';
+INSERT INTO storage_budget(scope_id,limit_bytes) VALUES(-1,1073741824),(0,10737418240);
+
+-- BEGIN STORAGE GUARDS
+DELIMITER $$
+CREATE TRIGGER as_budget_instrument_ai AFTER INSERT ON `instrument` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`lifecycle_evidence_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_instrument_au AFTER UPDATE ON `instrument` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`lifecycle_evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`lifecycle_evidence_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_instrument_ad AFTER DELETE ON `instrument` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`lifecycle_evidence_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_analysis_report_ai AFTER INSERT ON `analysis_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`content_json`),0)+COALESCE(OCTET_LENGTH(NEW.`content_md`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_analysis_report_au AFTER UPDATE ON `analysis_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`content_json`),0)+COALESCE(OCTET_LENGTH(NEW.`content_md`),0))-(COALESCE(OCTET_LENGTH(OLD.`content_json`),0)+COALESCE(OCTET_LENGTH(OLD.`content_md`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_analysis_report_ad AFTER DELETE ON `analysis_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`content_json`),0)+COALESCE(OCTET_LENGTH(OLD.`content_md`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_daily_bar_audit_ai AFTER INSERT ON `daily_bar_audit` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`old_value`),0)+COALESCE(OCTET_LENGTH(NEW.`new_value`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_daily_bar_audit_au AFTER UPDATE ON `daily_bar_audit` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`old_value`),0)+COALESCE(OCTET_LENGTH(NEW.`new_value`),0))-(COALESCE(OCTET_LENGTH(OLD.`old_value`),0)+COALESCE(OCTET_LENGTH(OLD.`new_value`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_daily_bar_audit_ad AFTER DELETE ON `daily_bar_audit` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`old_value`),0)+COALESCE(OCTET_LENGTH(OLD.`new_value`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_earnings_forecast_snapshot_ai AFTER INSERT ON `earnings_forecast_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`metrics_json`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_earnings_forecast_snapshot_au AFTER UPDATE ON `earnings_forecast_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`metrics_json`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`metrics_json`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_earnings_forecast_snapshot_ad AFTER DELETE ON `earnings_forecast_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`metrics_json`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_financial_report_ai AFTER INSERT ON `financial_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`source_url`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_financial_report_au AFTER UPDATE ON `financial_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`source_url`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`source_url`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_financial_report_ad AFTER DELETE ON `financial_report` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`source_url`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_ai AFTER INSERT ON `theme` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`description`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_au AFTER UPDATE ON `theme` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`description`),0))-(COALESCE(OCTET_LENGTH(OLD.`description`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_ad AFTER DELETE ON `theme` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`description`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_source_document_ai AFTER INSERT ON `source_document` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`url`),0)+COALESCE(OCTET_LENGTH(NEW.`content`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_source_document_au AFTER UPDATE ON `source_document` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`url`),0)+COALESCE(OCTET_LENGTH(NEW.`content`),0))-(COALESCE(OCTET_LENGTH(OLD.`url`),0)+COALESCE(OCTET_LENGTH(OLD.`content`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_source_document_ad AFTER DELETE ON `source_document` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`url`),0)+COALESCE(OCTET_LENGTH(OLD.`content`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_execution_ai AFTER INSERT ON `job_execution` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`error`),0); SET r=CASE WHEN NEW.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN NEW.reservation_bytes ELSE 0 END; SET uid=CASE WHEN NEW.job_name IN ('DAILY','WEEKLY') THEN NEW.tenant_id ELSE 0 END;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_execution_au AFTER UPDATE ON `job_execution` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`error`),0))-(COALESCE(OCTET_LENGTH(OLD.`error`),0)); SET r=(CASE WHEN NEW.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN NEW.reservation_bytes ELSE 0 END)-(CASE WHEN OLD.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN OLD.reservation_bytes ELSE 0 END); SET uid=CASE WHEN NEW.job_name IN ('DAILY','WEEKLY') THEN NEW.tenant_id ELSE 0 END;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_execution_ad AFTER DELETE ON `job_execution` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`error`),0)); SET r=-(CASE WHEN OLD.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN OLD.reservation_bytes ELSE 0 END); SET uid=CASE WHEN OLD.job_name IN ('DAILY','WEEKLY') THEN OLD.tenant_id ELSE 0 END;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_stage_ai AFTER INSERT ON `job_stage` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`error`),0)+COALESCE(OCTET_LENGTH(NEW.`details_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_stage_au AFTER UPDATE ON `job_stage` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`error`),0)+COALESCE(OCTET_LENGTH(NEW.`details_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`error`),0)+COALESCE(OCTET_LENGTH(OLD.`details_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_stage_ad AFTER DELETE ON `job_stage` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`error`),0)+COALESCE(OCTET_LENGTH(OLD.`details_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_attempt_history_ai AFTER INSERT ON `job_attempt_history` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`execution_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_attempt_history_au AFTER UPDATE ON `job_attempt_history` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`execution_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`execution_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_job_attempt_history_ad AFTER DELETE ON `job_attempt_history` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`execution_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_breadth_snapshot_ai AFTER INSERT ON `market_breadth_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`metrics_json`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_breadth_snapshot_au AFTER UPDATE ON `market_breadth_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`metrics_json`),0)+COALESCE(OCTET_LENGTH(NEW.`raw_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`metrics_json`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_breadth_snapshot_ad AFTER DELETE ON `market_breadth_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`metrics_json`),0)+COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_universe_snapshot_ai AFTER INSERT ON `market_universe_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`members_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_universe_snapshot_au AFTER UPDATE ON `market_universe_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`members_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`members_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_universe_snapshot_ad AFTER DELETE ON `market_universe_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`members_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_data_revision_ai AFTER INSERT ON `market_data_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`bar_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_data_revision_au AFTER UPDATE ON `market_data_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`bar_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`bar_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_data_revision_ad AFTER DELETE ON `market_data_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`bar_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_factor_snapshot_ai AFTER INSERT ON `market_factor_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`raw_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_factor_snapshot_au AFTER UPDATE ON `market_factor_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`raw_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_factor_snapshot_ad AFTER DELETE ON `market_factor_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`raw_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_observation_snapshot_ai AFTER INSERT ON `market_observation_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`analysis_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_observation_snapshot_au AFTER UPDATE ON `market_observation_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`analysis_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`analysis_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_observation_snapshot_ad AFTER DELETE ON `market_observation_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`analysis_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_score_ai AFTER INSERT ON `market_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_score_au AFTER UPDATE ON `market_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_market_score_ad AFTER DELETE ON `market_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_report_input_snapshot_ai AFTER INSERT ON `report_input_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`input_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_report_input_snapshot_au AFTER UPDATE ON `report_input_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`input_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`input_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_report_input_snapshot_ad AFTER DELETE ON `report_input_snapshot` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`input_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_collection_ai AFTER INSERT ON `research_collection` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_collection_au AFTER UPDATE ON `research_collection` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_collection_ad AFTER DELETE ON `research_collection` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_event_ai AFTER INSERT ON `signal_event` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_event_au AFTER UPDATE ON `signal_event` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_event_ad AFTER DELETE ON `signal_event` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_research_cohort_ai AFTER INSERT ON `theme_research_cohort` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`definition_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_research_cohort_au AFTER UPDATE ON `theme_research_cohort` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`definition_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`definition_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_research_cohort_ad AFTER DELETE ON `theme_research_cohort` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`definition_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_score_ai AFTER INSERT ON `theme_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_score_au AFTER UPDATE ON `theme_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_score_ad AFTER DELETE ON `theme_score` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_revision_ai AFTER INSERT ON `signal_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0)+COALESCE(OCTET_LENGTH(NEW.`parameters_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_revision_au AFTER UPDATE ON `signal_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0)+COALESCE(OCTET_LENGTH(NEW.`parameters_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)+COALESCE(OCTET_LENGTH(OLD.`parameters_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_signal_revision_ad AFTER DELETE ON `signal_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)+COALESCE(OCTET_LENGTH(OLD.`parameters_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_validation_experiment_ai AFTER INSERT ON `validation_experiment` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`request_json`),0)+COALESCE(OCTET_LENGTH(NEW.`snapshot_json`),0)+COALESCE(OCTET_LENGTH(NEW.`result_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_validation_experiment_au AFTER UPDATE ON `validation_experiment` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`request_json`),0)+COALESCE(OCTET_LENGTH(NEW.`snapshot_json`),0)+COALESCE(OCTET_LENGTH(NEW.`result_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`request_json`),0)+COALESCE(OCTET_LENGTH(OLD.`snapshot_json`),0)+COALESCE(OCTET_LENGTH(OLD.`result_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_validation_experiment_ad AFTER DELETE ON `validation_experiment` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`request_json`),0)+COALESCE(OCTET_LENGTH(OLD.`snapshot_json`),0)+COALESCE(OCTET_LENGTH(OLD.`result_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_validation_task_ai AFTER INSERT ON `research_validation_task` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`request_json`),0)+COALESCE(OCTET_LENGTH(NEW.`summary_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0); SET r=CASE WHEN NEW.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN NEW.reservation_bytes ELSE 0 END; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_validation_task_au AFTER UPDATE ON `research_validation_task` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`request_json`),0)+COALESCE(OCTET_LENGTH(NEW.`summary_json`),0)+COALESCE(OCTET_LENGTH(NEW.`evidence_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`request_json`),0)+COALESCE(OCTET_LENGTH(OLD.`summary_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=(CASE WHEN NEW.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN NEW.reservation_bytes ELSE 0 END)-(CASE WHEN OLD.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN OLD.reservation_bytes ELSE 0 END); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_validation_task_ad AFTER DELETE ON `research_validation_task` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`request_json`),0)+COALESCE(OCTET_LENGTH(OLD.`summary_json`),0)+COALESCE(OCTET_LENGTH(OLD.`evidence_json`),0)); SET r=-(CASE WHEN OLD.status IN ('PENDING','RUNNING','CANCEL_REQUESTED','TIMEOUT_REQUESTED') THEN OLD.reservation_bytes ELSE 0 END); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_ai AFTER INSERT ON `research_plan` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`snapshot_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_au AFTER UPDATE ON `research_plan` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`snapshot_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`snapshot_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_ad AFTER DELETE ON `research_plan` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`snapshot_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_review_ai AFTER INSERT ON `research_plan_review` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`review_json`),0); SET r=0; SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_review_au AFTER UPDATE ON `research_plan_review` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ IF NEW.tenant_id<>OLD.tenant_id THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_OWNER_IMMUTABLE'; END IF;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`review_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`review_json`),0)); SET r=(0)-(0); SET uid=NEW.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_research_plan_review_ad AFTER DELETE ON `research_plan_review` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`review_json`),0)); SET r=-(0); SET uid=OLD.tenant_id;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_leader_revision_ai AFTER INSERT ON `theme_leader_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=COALESCE(OCTET_LENGTH(NEW.`directory_json`),0); SET r=0; SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_leader_revision_au AFTER UPDATE ON `theme_leader_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=(COALESCE(OCTET_LENGTH(NEW.`directory_json`),0))-(COALESCE(OCTET_LENGTH(OLD.`directory_json`),0)); SET r=(0)-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+
+CREATE TRIGGER as_budget_theme_leader_revision_ad AFTER DELETE ON `theme_leader_revision` FOR EACH ROW
+BEGIN
+ DECLARE d BIGINT; DECLARE r BIGINT; DECLARE uid BIGINT;
+ SET d=-(COALESCE(OCTET_LENGTH(OLD.`directory_json`),0)); SET r=-(0); SET uid=0;
+ IF d<>0 OR r<>0 THEN
+  UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=0 AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+  IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_PLATFORM_LIMIT'; END IF;
+  IF uid>0 THEN
+   INSERT IGNORE INTO storage_budget(scope_id,limit_bytes) SELECT uid,limit_bytes FROM storage_budget WHERE scope_id=-1;
+   UPDATE storage_budget SET used_bytes=used_bytes+d,reserved_bytes=reserved_bytes+r WHERE scope_id=uid AND used_bytes+d>=0 AND reserved_bytes+r>=0 AND (d+r<=0 OR used_bytes+reserved_bytes+d+r<=limit_bytes);
+   IF ROW_COUNT()=0 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='ALPHASCOPE_STORAGE_USER_LIMIT'; END IF;
+  END IF;
+ END IF;
+END$$
+DELIMITER ;
+-- END STORAGE GUARDS

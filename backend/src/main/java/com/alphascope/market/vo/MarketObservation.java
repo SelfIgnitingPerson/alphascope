@@ -35,7 +35,35 @@ public record MarketObservation(
     Map<String, Double> parameters,
 
     /** 当前范围、数据时点和统计方法的适用边界。 */
-    List<String> limitations) {
+    List<String> limitations,
+    /** 仅新三所观察附实际输入来源；旧冻结内容缺省不改写。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.util.Set<String> inputSources) {
+  /** 兼容既有冻结证据格式，旧输入不猜测来源。 */
+  public MarketObservation(
+      String version,
+      LocalDate businessDate,
+      String scope,
+      String status,
+      Trend trend,
+      Turnover turnover,
+      Breadth breadth,
+      Map<String, Double> parameters,
+      List<String> limitations) {
+    this(
+        version,
+        businessDate,
+        scope,
+        status,
+        trend,
+        turnover,
+        breadth,
+        parameters,
+        limitations,
+        null);
+  }
+
   /**
    * 沪深300价格与20/60日均线的趋势事实，不给出固定交易价格。
    *

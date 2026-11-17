@@ -343,14 +343,17 @@ try {
     await click('[data-testid="retry-job-' + first.id + '"]');
     const retry = await until(async () => {
       const page = await api('/admin/jobs');
-      return page.items.find((job) => job.retry_of === first.id);
-    }, '新尝试保留父任务');
+      return page.items.find((job) => job.id === first.id && job.attempt > first.attempt);
+    }, '原任务编号重试');
     await until(async () => {
       const job = await api('/admin/jobs/' + retry.id);
       if (['FAILED', 'INTERRUPTED', 'TIMED_OUT', 'CANCELLED'].includes(job.status))
         throw Error('重试失败：' + JSON.stringify(job));
       return job.status === 'SUCCESS';
     }, '重试成功');
+    assert.equal(retry.id, first.id);
+    const pastAttempts = await api('/admin/jobs/' + first.id + '/attempts');
+    assert.equal(pastAttempts.items[0].status, 'CANCELLED');
     await closeDrawer();
     await navigate('/reports');
     await until(
@@ -877,11 +880,14 @@ try {
           join(artifacts, 'layout-' + name + '-' + size + '.png'),
           Buffer.from(image.data, 'base64'),
         );
-        const tabCount = await evaluate(
-          `document.querySelectorAll('.section-tabs__navigation button').length`,
+        await evaluate(
+          `document.querySelectorAll('details[data-testid="legacy-theme-sample"]').forEach(item => item.open = true)`,
         );
-        for (let index = 1; index < tabCount; index++) {
-          await click('.section-tabs__navigation button:nth-child(' + (index + 1) + ')');
+        const tabSelectors = await evaluate(
+          `(() => { const nav=Array.from(document.querySelectorAll('.section-tabs__navigation')).find(x=>x.getClientRects().length); return nav?Array.from(nav.querySelectorAll('button')).map(x=>'#'+CSS.escape(x.id)):[]; })()`,
+        );
+        for (let index = 1; index < tabSelectors.length; index++) {
+          await click(tabSelectors[index]);
           await evaluate(
             `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
           );
@@ -892,7 +898,7 @@ try {
             name + ' 分类 ' + index + ' 不溢出 ' + size,
           );
         }
-        if (tabCount) await click('.section-tabs__navigation button:first-child');
+        if (tabSelectors.length) await click(tabSelectors[0]);
         layoutChecks.push(name + '-' + size);
       }
     }
@@ -913,7 +919,7 @@ try {
         'submit',
         'running-cancel',
         'durable-cancelled',
-        'retry-parent',
+        'same-id-retry-history',
         'report-detail',
         'report-tabs-and-responsive-overview',
         'synthetic-guard',

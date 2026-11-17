@@ -25,6 +25,12 @@ public class TaskConfig {
     return scheduler("alphascope-worker-");
   }
 
+  /** 共享市场采集独立单消费者，私人报告不等待整个历史批次。 */
+  @Bean
+  public ThreadPoolTaskScheduler collectionScheduler() {
+    return scheduler("alphascope-collection-");
+  }
+
   /** 心跳连接不与耗时研究或备份竞争执行线程。 */
   @Bean
   public ThreadPoolTaskScheduler heartbeatScheduler() {

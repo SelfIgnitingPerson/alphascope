@@ -130,3 +130,6 @@ SCHEDULER_ENABLED=true统一开启每日16:10、周五18:00及启动60秒后每3
 组合中启用eastmoney即可同时提供指数与收盘研究截面；研究截面还依赖SINA目录，因此PUBLIC要分别具备SINA与EASTMONEY的COLLECT许可。该功能不需要Tushare Token或Python环境。自动日报继续使用同一SCHEDULER_ENABLED入口，成功原始截面按日期保存并复用；当前免费源不回溯过去目录。
 
 403/429会将一小时冷却终点保存在.runtime/eastmoney-market-cooldown.txt。不要删除标记、切换主机或增加并发规避访问限制。未归档历史显示NOT_ARCHIVED，未声明的复权能力显示UNSUPPORTED；自然积累完整交易日后才满足量能窗口，日期/状态缺失不填0。详细口径见[免费截面](data-providers.md#免费全市场截面与自然归档)。
+
+
+本机CLI入口由ALPHASCOPE_API_BASE指定，默认http://127.0.0.1:5173，支持Docker或前端同源代理。只启动后端时显式设http://127.0.0.1:8080。该配置只用于本机工具，拒绝远程主机、URL凭据、附带查询与路径前缀；不改变服务监听地址、PUBLIC认证或CSRF。

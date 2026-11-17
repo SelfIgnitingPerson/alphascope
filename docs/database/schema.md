@@ -1,8 +1,8 @@
 # 当前数据库数据字典
 
-定义以唯一[V1初始化基线](../../backend/src/main/resources/db/migration/V1__baseline.sql)为准。金额为人民币元、数量为股、比例为小数，业务时间为上海时区。Flyway历史表不计入下列业务表。
+以唯一 [V1开发基线](../../backend/src/main/resources/db/migration/V1__baseline.sql) 为准。金额为人民币元、数量为股、比例为小数，业务时间为上海时区。
 
-当前共41张业务/控制表、406个带中文说明的字段。私人表的tenant_id由认证身份或后台执行范围注入，不接受客户端指定；共享数据及控制表边界见[多用户访问说明](../architecture/multi-user.md)。
+当前共46张业务与控制表、444个中文字段注释，Flyway历史表另计。私人表的tenant_id由认证身份或后台执行范围注入，不接受客户端指定；共享数据边界见[多用户设计](../architecture/multi-user.md)。
 
 ## instrument
 
@@ -16,6 +16,11 @@
 | exchange | varchar(8) NOT NULL | 交易所标识：SH上海，SZ深圳 |
 | type | varchar(16) NOT NULL | 标的类型：STOCK股票，INDEX指数 |
 | listed_at | date DEFAULT NULL | 已知上市日期；NULL表示尚未登记，不据此伪造上市前行情 |
+| delisted_at | date DEFAULT NULL | 已明确退市日期，缺证据时为空，不从行情缺口推断 |
+| lifecycle_source | varchar(64) DEFAULT NULL | 生命周期元数据实际来源，人工补录保留公开依据 |
+| lifecycle_observed_at | datetime(6) DEFAULT NULL | 生命周期资料实际核验时刻，上海时区 |
+| lifecycle_evidence_json | longtext | 上市及退市日期的原始响应、公开链接和人工定位 |
+| lifecycle_hash | char(64) DEFAULT NULL | 生命周期原文精确文本SHA256 |
 | active | tinyint(1) NOT NULL DEFAULT '1' | 标的启用标志：1启用，0停用 |
 | created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 记录创建时间，上海时区 |
 | updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 记录最后更新时间，上海时区 |
@@ -252,7 +257,7 @@
 | --- | --- | --- |
 | tenant_id | bigint NOT NULL DEFAULT '1' | 所属用户的私人研究范围，不接受客户端指定 |
 | id | bigint NOT NULL AUTO_INCREMENT | 记录主键，自增生成 |
-| job_name | varchar(64) NOT NULL | 任务类型：DAILY日报，WEEKLY周报 |
+| job_name | varchar(64) NOT NULL | 任务类型：DAILY日报，WEEKLY周报，MARKET_HISTORY市场历史补齐，MARKET_UNIVERSE北交所目录补齐，MARKET_FULL三所证据核验 |
 | business_date | date NOT NULL | 本次研究或采集的业务日期，按上海时区记录 |
 | attempt | int NOT NULL | 同任务类型和业务日期的尝试序号，从1递增 |
 | status | varchar(32) NOT NULL | 任务执行状态：等待、运行、成功、跳过、失败、中断、取消请求、超时请求、已取消、已超时；数据质量独立记录 |
@@ -267,6 +272,7 @@
 | heartbeat_at | datetime(6) DEFAULT NULL | 工作进程最近心跳时间，上海时区 |
 | retry_of | bigint DEFAULT NULL | 被重试的原任务ID；首次提交时为空 |
 | data_status | varchar(32) DEFAULT NULL | 任务数据质量：AVAILABLE完整、PARTIAL部分、UNAVAILABLE缺失、NOT_APPLICABLE不适用、UNKNOWN未核验；旧记录为空 |
+| reservation_bytes | bigint NOT NULL DEFAULT 0 | 活动任务保守预留的证据字节数，终态由预算触发器释放 |
 
 ## job_stage
 
@@ -285,6 +291,20 @@
 | data_status | varchar(32) DEFAULT NULL | 独立于阶段执行状态的数据质量；运行中或旧记录为空 |
 | details_json | json DEFAULT NULL | 阶段核验、实际进度、硬截止和恢复来源JSON；旧记录为空 |
 
+## job_attempt_history
+
+同任务重试的不可变执行快照，主列表沿用原编号
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| tenant_id | bigint NOT NULL DEFAULT '1' | 所属用户空间，由服务端注入 |
+| id | bigint NOT NULL AUTO_INCREMENT | 历史执行快照主键 |
+| job_id | bigint NOT NULL | 稳定的任务主键，关联job_execution.id |
+| attempt | int NOT NULL | 该快照对应的原执行序号 |
+| execution_json | longtext NOT NULL | 重试前的状态、原因、时刻、来源与阶段快照，不随新执行覆盖 |
+| content_hash | char(64) NOT NULL | 执行快照原文SHA256，用于读取时校验 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 快照实际保存时间，上海时区 |
+
 ## market_breadth_snapshot
 
 沪深A股当日成交额与涨跌家数的不可变截面
@@ -299,6 +319,21 @@
 | metrics_json | json NOT NULL | 已核对市场指标JSON，含成交额、涨跌家数、覆盖率和状态；金额单位元 |
 | raw_json | json NOT NULL | 本次证券清单与全量日线原文JSON，用于复核覆盖分母和缺口 |
 | fetched_at | datetime(6) NOT NULL | 原始数据实际采集时间，上海时区；复用缓存不改写 |
+
+## market_universe_snapshot
+
+不可变的供应商在市证券清单及完整分页证据，不代替历史行情
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 不可变目录归档主键 |
+| business_date | date NOT NULL | 实际目录观测的上海日期，不由当前名单倒填历史 |
+| universe_scope | varchar(32) NOT NULL | 目录范围；BSE_A为北交所在市A股 |
+| source | varchar(64) NOT NULL | 实际目录来源；SINA为新浪在市目录，不冒充交易所官方 |
+| content_hash | char(64) NOT NULL | 成员文本、换行和证据文本组合的SHA256 |
+| members_json | longtext NOT NULL | 已核验代码与名称的精确JSON文本 |
+| evidence_json | longtext NOT NULL | 全部分页、前后计数、首屏确认及真实观测区间的精确JSON文本 |
+| observed_at | datetime(6) NOT NULL | 原始核验结束时刻，上海时区；读取缓存不更新 |
 
 ## market_data_revision
 
@@ -530,23 +565,6 @@
 | is_synthetic | tinyint(1) NOT NULL DEFAULT '0' | 演示数据标志：0真实数据，1演示数据；按模式隔离 |
 | source | varchar(64) NOT NULL DEFAULT 'LEGACY' | 本条交易日历的实际来源标识 |
 
-## valuation_snapshot
-
-标的每日估值快照结构：当前未自动采集
-
-| 字段 | 类型与约束 | 说明 |
-| --- | --- | --- |
-| id | bigint NOT NULL AUTO_INCREMENT | 记录主键，自增生成 |
-| instrument_id | bigint NOT NULL | 标的主键，关联instrument.id |
-| trade_date | date NOT NULL | 交易日期，按上海时区记录 |
-| pe_ttm | decimal(18,8) DEFAULT NULL | 滚动十二个月市盈率，单位倍；缺失或不适用时为空 |
-| pb | decimal(18,8) DEFAULT NULL | 市净率，单位倍；缺失或不适用时为空 |
-| ps_ttm | decimal(18,8) DEFAULT NULL | 滚动十二个月市销率，单位倍；缺失或不适用时为空 |
-| market_cap | decimal(24,4) DEFAULT NULL | 总市值，人民币元；缺失时为空 |
-| source | varchar(64) NOT NULL | 实际数据供应商或人工来源标识 |
-| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 记录创建时间，上海时区 |
-| updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 记录最后更新时间，上海时区 |
-
 ## watchlist
 
 当前自选研究范围与关注优先级
@@ -626,6 +644,7 @@
 | heartbeat_at | datetime(6) DEFAULT NULL | 执行进程最近心跳，上海时区 |
 | deadline_at | datetime(6) DEFAULT NULL | 执行硬截止时间，上海时区，不随心跳延长 |
 | updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 记录最后更新时间，上海时区 |
+| reservation_bytes | bigint NOT NULL DEFAULT 0 | 活动任务保守预留的证据字节数，终态由预算触发器释放 |
 
 ## app_user
 
@@ -697,3 +716,56 @@
 | last_seen_at | datetime(6) NOT NULL | 最后观察到该事项的时刻 |
 | resolved_at | datetime(6) DEFAULT NULL | 完整检查确认恢复的时刻，未恢复为空 |
 
+## research_plan
+
+用户冻结研究计划
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 个人研究计划主键 |
+| tenant_id | bigint NOT NULL DEFAULT 1 | 所属用户，由会话隔离自动写入 |
+| symbol | varchar(16) NOT NULL | 证券代码，含交易所后缀 |
+| horizon | varchar(16) NOT NULL | 研究周期SHORT、MEDIUM、LONG |
+| action_code | varchar(64) NOT NULL | 冻结行动方案代码 |
+| snapshot_json | longtext NOT NULL | 原始研究精确JSON文本，不随新行情覆盖 |
+| snapshot_hash | char(64) NOT NULL | 原始研究文本SHA256 |
+| archived | tinyint(1) NOT NULL DEFAULT 0 | 用户是否已归档，归档不删除证据 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 计划实际保存时间，上海时区 |
+
+## research_plan_review
+
+个人计划不可变复核记录
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 追加复核主键 |
+| tenant_id | bigint NOT NULL DEFAULT 1 | 所属用户，由会话隔离自动写入 |
+| plan_id | bigint NOT NULL | 所属原始计划主键 |
+| review_json | longtext NOT NULL | 本次复核精确JSON，追加而不覆盖 |
+| review_hash | char(64) NOT NULL | 本次复核文本SHA256 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 复核保存时间，上海时区 |
+
+## theme_leader_revision
+
+当前核心企业目录不可变修订
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 不可变目录修订主键 |
+| theme_code | varchar(64) NOT NULL | 已登记主题代码 |
+| directory_json | longtext NOT NULL | 核心目录精确JSON，不修改原披露成分 |
+| content_hash | char(64) NOT NULL | 目录文本SHA256 |
+| reviewer_id | bigint NOT NULL | 实际维护管理员主键 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 目录保存时间，上海时区 |
+
+## storage_budget
+
+证据正文的增量计量与写入预算，不保存研究内容
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| scope_id | bigint NOT NULL | 0为平台总量，-1为默认个人额度，正数为用户空间 |
+| used_bytes | bigint NOT NULL DEFAULT 0 | 全部受计量证据正文的数据库OCTET_LENGTH总量，不是物理磁盘占用 |
+| reserved_bytes | bigint NOT NULL DEFAULT 0 | 活动日报、共享采集及验证任务的保守预留，终态原子释放 |
+| limit_bytes | bigint NOT NULL | 该范围证据使用与预留的总上限，单位字节 |
+| updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 计量或额度最后变更时刻，上海时区 |

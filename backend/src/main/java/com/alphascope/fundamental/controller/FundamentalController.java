@@ -4,6 +4,7 @@ import com.alphascope.common.response.Result;
 import com.alphascope.fundamental.service.FundamentalService;
 import com.alphascope.fundamental.vo.FinancialView;
 import com.alphascope.fundamental.vo.FinancialsView;
+import com.alphascope.operations.policy.ResearchData;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * @author chenxuefeng
  */
+@ResearchData
 @RestController
 public class FundamentalController {
   private final FundamentalService service;
