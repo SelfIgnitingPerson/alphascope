@@ -24,7 +24,14 @@ export interface PlanReview {
 export type PlanSummary = Pick<
   ResearchPlan,
   'id' | 'horizon' | 'actionCode' | 'archived' | 'createdAt'
-> & { symbol: string; name: string; asOf: string };
+> & {
+  symbol: string;
+  name: string;
+  asOf: string;
+  latestReviewDate?: string | null;
+  latestReviewStatus?: string | null;
+  latestReviewExplanation?: string | null;
+};
 export interface PlanFilters {
   page: number;
   size: number;

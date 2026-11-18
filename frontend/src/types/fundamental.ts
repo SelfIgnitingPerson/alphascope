@@ -8,6 +8,14 @@ export interface Financial {
   published_at: string;
   /** 截至报告业务日可用的累计财报类型，不混用单季度口径。 */
   report_type: string;
+  /** 供同期对照核验的实际来源；旧资料缺省时不假定可比。 */
+  source?: string | null;
+  /** 可核验的原公开来源地址，不包含本机凭据。 */
+  source_url?: string | null;
+  /** 同一报告期的不可变内容版本。 */
+  version?: number;
+  /** 资料可用于研究的保守时点，后端据此筛选。 */
+  available_at?: string | null;
   /** 累计营业收入，单位人民币元；为空表示尚无可用证据。 */
   revenue: Numeric | null;
   /** 累计归属于母公司股东的净利润，单位人民币元；允许亏损，空值表示缺失。 */

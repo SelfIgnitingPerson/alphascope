@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import DailyResearchFocus from '../components/research/DailyResearchFocus.vue';
 import AsyncState from '../components/common/AsyncState.vue';
 import SectionCard from '../components/common/SectionCard.vue';
 import { useResource } from '../composables/useResource';
@@ -14,6 +15,8 @@ import {
 import { useMutation } from '../composables/useMutation';
 const props = defineProps<PageProps>();
 const symbol = ref('');
+const watchChanges = ref(0);
+const manageOpen = ref(false);
 const keyword = ref('');
 const candidates = ref<InstrumentCandidate[]>([]);
 const searchMessage = ref('');
@@ -78,152 +81,165 @@ async function add() {
     jobId.value = result.jobId;
     symbol.value = '';
     await reload();
+    watchChanges.value++;
   });
 }
 async function remove(value: string) {
   await mutation.run(async () => {
     await removeWatch(value);
     await reload();
+    watchChanges.value++;
   });
 }
 </script>
 <template>
-  <SectionCard
-    title="我的关注列表"
-    description="搜索真实A股，选择后加入自己的自选；首次初始化进度可在任务中心查看。"
+  <DailyResearchFocus
+    :date="date"
+    :refresh-token="refreshToken + watchChanges"
+  />
+  <details
+    :open="manageOpen || (Boolean(data) && !data?.length)"
+    @toggle="manageOpen = ($event.target as HTMLDetailsElement).open"
+    class="reading-details"
   >
-    <template #actions>
-      <span class="count-label">{{ data?.length ?? '—' }} 只关注</span>
-    </template>
-    <form
-      class="filter-bar filter-bar--search"
-      @submit.prevent="search"
+    <summary>管理自选范围：搜索、添加与移除</summary>
+    <SectionCard
+      title="我的关注列表"
+      description="搜索真实A股，选择后加入自己的自选；首次初始化进度可在任务中心查看。"
     >
-      <el-input
-        v-model="keyword"
-        placeholder="输入代码或名称，例如 600519 或 贵州茅台"
-        aria-label="搜索股票"
-        maxlength="40"
-        clearable
+      <template #actions>
+        <span class="count-label">{{ data?.length ?? '—' }} 只关注</span>
+      </template>
+      <form
+        class="filter-bar filter-bar--search"
+        @submit.prevent="search"
+      >
+        <el-input
+          v-model="keyword"
+          placeholder="输入代码或名称，例如 600519 或 贵州茅台"
+          aria-label="搜索股票"
+          maxlength="40"
+          clearable
+        />
+        <el-button
+          data-testid="watch-search"
+          native-type="submit"
+          :loading="busy"
+        >
+          搜索股票
+        </el-button>
+      </form>
+      <p
+        v-if="searchMessage"
+        class="help-text"
+        role="status"
+      >
+        {{ searchMessage }}
+      </p>
+      <form
+        class="filter-bar filter-bar--watch-add"
+        @submit.prevent="add"
+      >
+        <label class="filter-field">
+          选择股票
+          <el-select
+            v-model="symbol"
+            placeholder="选择已核验股票"
+            aria-label="股票候选"
+            filterable
+          >
+            <el-option
+              v-for="item in candidates"
+              :key="item.symbol"
+              :value="item.symbol"
+              :label="`${item.name} · ${item.symbol}${item.registered ? '（已登记）' : ''}`"
+            />
+          </el-select>
+        </label>
+        <el-checkbox v-model="initialize">添加后初始化 {{ date }} 的研究</el-checkbox>
+        <el-button
+          type="primary"
+          native-type="submit"
+          :loading="busy"
+          data-testid="watch-add"
+          :disabled="!symbol"
+        >
+          添加关注
+        </el-button>
+      </form>
+      <p
+        v-if="resultMessage"
+        class="help-text"
+        role="status"
+      >
+        {{ resultMessage }}
+        <RouterLink
+          v-if="jobId"
+          to="/jobs"
+          class="text-link"
+        >
+          查看任务 #{{ jobId }} →
+        </RouterLink>
+      </p>
+      <el-alert
+        v-if="mutationError"
+        :title="mutationError"
+        type="error"
+        :closable="false"
+        class="form-error"
       />
-      <el-button
-        data-testid="watch-search"
-        native-type="submit"
-        :loading="busy"
+      <AsyncState
+        :loading="loading"
+        :error="error"
+        @retry="reload"
       >
-        搜索股票
-      </el-button>
-    </form>
-    <p
-      v-if="searchMessage"
-      class="help-text"
-      role="status"
-    >
-      {{ searchMessage }}
-    </p>
-    <form
-      class="filter-bar filter-bar--watch-add"
-      @submit.prevent="add"
-    >
-      <label class="filter-field">
-        选择股票
-        <el-select
-          v-model="symbol"
-          placeholder="选择已核验股票"
-          aria-label="股票候选"
-          filterable
+        <el-table
+          :data="data || []"
+          empty-text="还没有关注标的"
         >
-          <el-option
-            v-for="item in candidates"
-            :key="item.symbol"
-            :value="item.symbol"
-            :label="`${item.name} · ${item.symbol}${item.registered ? '（已登记）' : ''}`"
+          <el-table-column
+            prop="symbol"
+            label="股票代码"
+            min-width="130"
           />
-        </el-select>
-      </label>
-      <el-checkbox v-model="initialize">添加后初始化 {{ date }} 的研究</el-checkbox>
-      <el-button
-        type="primary"
-        native-type="submit"
-        :loading="busy"
-        data-testid="watch-add"
-        :disabled="!symbol"
-      >
-        添加关注
-      </el-button>
-    </form>
-    <p
-      v-if="resultMessage"
-      class="help-text"
-      role="status"
-    >
-      {{ resultMessage }}
-      <RouterLink
-        v-if="jobId"
-        to="/jobs"
-        class="text-link"
-      >
-        查看任务 #{{ jobId }} →
-      </RouterLink>
-    </p>
-    <el-alert
-      v-if="mutationError"
-      :title="mutationError"
-      type="error"
-      :closable="false"
-      class="form-error"
-    />
-    <AsyncState
-      :loading="loading"
-      :error="error"
-      @retry="reload"
-    >
-      <el-table
-        :data="data || []"
-        empty-text="还没有关注标的"
-      >
-        <el-table-column
-          prop="symbol"
-          label="股票代码"
-          min-width="130"
-        />
-        <el-table-column
-          prop="name"
-          label="名称"
-          min-width="120"
-        />
-        <el-table-column
-          label="操作"
-          min-width="190"
-          align="right"
-        >
-          <template #default="s">
-            <RouterLink
-              :to="`/stocks/${s.row.symbol}`"
-              class="text-link"
-            >
-              研究与买卖计划
-            </RouterLink>
-            <el-popconfirm
-              title="确认移除这只自选股？"
-              confirm-button-text="移除"
-              cancel-button-text="取消"
-              @confirm="remove(s.row.symbol)"
-            >
-              <template #reference>
-                <el-button
-                  link
-                  type="danger"
-                  :disabled="busy"
-                  class="table-action"
-                >
-                  移除
-                </el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </AsyncState>
-  </SectionCard>
+          <el-table-column
+            prop="name"
+            label="名称"
+            min-width="120"
+          />
+          <el-table-column
+            label="操作"
+            min-width="190"
+            align="right"
+          >
+            <template #default="s">
+              <RouterLink
+                :to="{ path: `/stocks/${s.row.symbol}`, query: { date } }"
+                class="text-link"
+              >
+                研究与买卖计划
+              </RouterLink>
+              <el-popconfirm
+                title="确认移除这只自选股？"
+                confirm-button-text="移除"
+                cancel-button-text="取消"
+                @confirm="remove(s.row.symbol)"
+              >
+                <template #reference>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="busy"
+                    class="table-action"
+                  >
+                    移除
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
+        </el-table>
+      </AsyncState>
+    </SectionCard>
+  </details>
 </template>

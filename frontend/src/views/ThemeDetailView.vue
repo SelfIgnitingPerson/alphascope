@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ObservationSummary from '../components/common/ObservationSummary.vue';
+import { themeObservation } from '../utils/observation-summaries';
 import ThemeObservation from '../components/themes/ThemeObservation.vue';
 import ThemeLeaderEditor from '../components/themes/ThemeLeaderEditor.vue';
 import ThemeLeaderPanel from '../components/themes/ThemeLeaderPanel.vue';
@@ -68,6 +70,11 @@ const latest = computed(() => data.value?.strength.items.at(-1));
     >
       ← 返回 AI 产业链
     </RouterLink>
+    <ObservationSummary
+      v-if="data"
+      :priority="themeObservation({ strength: data.strength, date })"
+      context="主题观察重点"
+    />
     <ThemeLeaderPanel
       :code="code"
       :research-date="date"

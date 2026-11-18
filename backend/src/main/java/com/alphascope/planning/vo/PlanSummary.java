@@ -15,6 +15,9 @@ import java.time.LocalDateTime;
  * @param archived 是否归档
  * @param createdAt 实际保存时刻
  * @param asOf 原研究日期
+ * @param latestReviewDate 最近保存的复核日期，未复核时为空
+ * @param latestReviewStatus 最近保存的复核状态，不等于当前所选日已复核
+ * @param latestReviewExplanation 最近保存复核的具体原因
  */
 public record PlanSummary(
     long id,
@@ -24,4 +27,7 @@ public record PlanSummary(
     String actionCode,
     boolean archived,
     LocalDateTime createdAt,
-    LocalDate asOf) {}
+    LocalDate asOf,
+    LocalDate latestReviewDate,
+    String latestReviewStatus,
+    String latestReviewExplanation) {}

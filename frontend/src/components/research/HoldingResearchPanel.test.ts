@@ -130,6 +130,7 @@ it('explains the selected period with the real date gap, missing items and next 
   data.horizons[0] = {
     ...data.horizons[0]!,
     status: 'UNAVAILABLE',
+    conclusion: '当前不输出可执行价位，先补齐有效研究证据',
     missing: ['缺少2026-11-13有效收盘日线'],
     actions: [],
   };
@@ -154,6 +155,7 @@ it('explains the selected period with the real date gap, missing items and next 
   });
   try {
     await flushPromises();
+    expect(wrapper.get('[data-testid="holding-horizon"]').text()).toContain('当前不输出可执行价位');
     await wrapper
       .get('[data-testid="holding-horizon"] > header .research-help-trigger')
       .trigger('click');
@@ -170,6 +172,110 @@ it('explains the selected period with the real date gap, missing items and next 
     expect(panel?.textContent).toContain('中期趋势持有');
     expect(panel?.textContent).toContain('中期还需连续日历');
     expect(panel?.textContent).not.toContain('缺少2026-11-13有效收盘日线');
+    expect(getHoldingResearch).toHaveBeenCalledTimes(1);
+  } finally {
+    wrapper.unmount();
+  }
+});
+
+it('separates a triggered reduction from permission to open or add and labels blocked prices as observations', async () => {
+  const data = fixture();
+  const horizon = data.horizons[0]!;
+  horizon.status = 'WATCH';
+  horizon.conclusion = '先复核减仓或风险退出，暂停新增风险';
+  horizon.actions[0]!.status = 'RISK_BLOCKED';
+  horizon.actions.push({
+    ...horizon.actions[0]!,
+    code: 'ADD_RETEST',
+    title: '回踩加仓',
+    status: 'RISK_BLOCKED',
+  });
+  horizon.actions.push({
+    ...horizon.actions[0]!,
+    code: 'REDUCE',
+    title: '减仓与风险退出',
+    conditionLogic: 'ANY',
+    status: 'CONDITIONAL_MATCH',
+    observationZone: null,
+  });
+  vi.mocked(getHoldingResearch).mockResolvedValue(data);
+  const wrapper = mount(HoldingResearchPanel, {
+    props: { symbol: data.symbol, date: data.asOf, refreshToken: 0 },
+    global: {
+      stubs: {
+        RouterLink: { template: '<a><slot/></a>' },
+        StateBadge: { props: ['label'], template: '<span>{{label}}</span>' },
+        TermHelp: true,
+        ElButton: true,
+        ElSkeleton: true,
+      },
+    },
+  });
+  await flushPromises();
+  expect(wrapper.get('[data-testid="holding-decision"]').text()).toContain('暂不建仓');
+  expect(wrapper.get('[data-testid="holding-decision"]').text()).toContain('暂不加仓');
+  expect(wrapper.text()).toContain('减仓 / 退出条件已触发');
+  expect(wrapper.get('.holding-action').attributes('data-action')).toBe('REDUCE');
+  await wrapper.get('[data-select-action="OPEN"]').trigger('click');
+  expect(wrapper.text()).toContain('结构观察区间（当前未确认可买入）');
+  expect(wrapper.text()).not.toContain('行情条件满足 · 待复核');
+  wrapper.unmount();
+});
+
+it('shows only the chosen scenario and binds the single save control to its period and action', async () => {
+  const data = fixture();
+  const original = data.horizons[0]!.actions[0]!;
+  data.horizons[0]!.actions.push({
+    ...original,
+    code: 'OPEN_BREAKOUT',
+    title: '放量突破建仓',
+    observationZone: { ...original.observationZone!, lower: 125, upper: 128 },
+  });
+  data.horizons[1]!.actions = [{ ...original, code: 'ADD_TREND', title: '中期加仓' }];
+  vi.mocked(getHoldingResearch).mockResolvedValue(data);
+  const wrapper = mount(HoldingResearchPanel, {
+    props: { symbol: data.symbol, date: data.asOf, refreshToken: 0 },
+    global: {
+      stubs: {
+        RouterLink: { template: '<a><slot/></a>' },
+        StateBadge: true,
+        TermHelp: true,
+        ElSkeleton: true,
+        SaveResearchPlan: {
+          props: ['actionTitle', 'actionCode', 'horizon'],
+          template:
+            '<button data-testid="selected-save" :data-action-code="actionCode" :data-horizon="horizon">保存「{{actionTitle}}」观察方案</button>',
+        },
+      },
+    },
+  });
+  try {
+    await flushPromises();
+    expect(wrapper.findAll('.holding-action')).toHaveLength(1);
+    expect(wrapper.findAll('[data-testid="selected-save"]')).toHaveLength(1);
+    expect(wrapper.get('[data-testid="selected-save"]').text()).toContain('回踩建仓');
+    expect(wrapper.get('.holding-action').text()).not.toContain('125.00');
+    await wrapper.get('[data-select-action="OPEN_BREAKOUT"]').trigger('click');
+    expect(wrapper.get('.holding-action').text()).toContain('125.00–128.00');
+    expect(wrapper.get('[data-testid="selected-save"]').attributes('data-action-code')).toBe(
+      'OPEN_BREAKOUT',
+    );
+    expect(wrapper.get('[data-testid="selected-save"]').text()).toContain('放量突破建仓');
+    expect(wrapper.get('.holding-save').text()).toContain('其他方案不会一起保存');
+    const condition = wrapper.get('.holding-condition');
+    expect(condition.attributes('open')).toBeUndefined();
+    await condition.get('summary').trigger('click');
+    expect(condition.attributes('open')).toBeDefined();
+    await wrapper.findAll('.holding-horizon-selector button')[1]!.trigger('click');
+    expect(wrapper.get('[data-testid="selected-save"]').attributes('data-action-code')).toBe(
+      'ADD_TREND',
+    );
+    expect(wrapper.get('[data-testid="selected-save"]').attributes('data-horizon')).toBe('MEDIUM');
+    await wrapper.findAll('.holding-horizon-selector button')[0]!.trigger('click');
+    expect(wrapper.get('[data-testid="selected-save"]').attributes('data-action-code')).toBe(
+      'OPEN',
+    );
+    expect(wrapper.findAll('[data-testid="selected-save"]')).toHaveLength(1);
     expect(getHoldingResearch).toHaveBeenCalledTimes(1);
   } finally {
     wrapper.unmount();

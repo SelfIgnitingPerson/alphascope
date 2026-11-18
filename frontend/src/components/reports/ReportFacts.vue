@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ReportAnalysis, ReportAssessment } from '../../types/models';
+import ObservationSummary from '../common/ObservationSummary.vue';
+import { reportObservation, reportStockPriority } from '../../utils/observation-summaries';
 import StateBadge from '../common/StateBadge.vue';
 import TermHelp from '../common/TermHelp.vue';
 import RuleStatusGuide from '../common/RuleStatusGuide.vue';
@@ -25,7 +27,9 @@ const show = (...sections: string[]) =>
   !props.section || props.section === 'all' || sections.includes(props.section);
 const overviewStocks = computed(() =>
   [...props.analysis.stocks].sort(
-    (left, right) => Number(right.triggered > 0) - Number(left.triggered > 0),
+    (left, right) =>
+      reportStockPriority({ analysis: props.analysis, stock: left, date: props.reportDate }).order -
+      reportStockPriority({ analysis: props.analysis, stock: right, date: props.reportDate }).order,
   ),
 );
 const visibleStocks = computed(() =>
@@ -62,7 +66,10 @@ const advice = (symbol: string) => props.analysis.advice?.find((a) => a.symbol =
       class="report-focus"
     >
       <span class="eyebrow">本期重点 · 冻结证据分析</span>
-      <h3>{{ analysis.headline }}</h3>
+      <ObservationSummary
+        :priority="reportObservation({ analysis, date: reportDate })"
+        context="本修订最应先核对的风险"
+      />
       <div class="report-focus__counts">
         <span>
           关注标的
@@ -109,6 +116,12 @@ const advice = (symbol: string) => props.analysis.advice?.find((a) => a.symbol =
             <small>{{ stock.symbol }}</small>
           </strong>
           <span>{{ stock.triggered }} 项已触发 · {{ stock.insufficient }} 项证据不足</span>
+          <p v-if="reportStockPriority({ analysis, stock, date: reportDate }).breach">
+            <strong>先核对本期结构参考已触及</strong>
+            · 收盘{{ number(priceVolume(stock.symbol)?.close) }}元，参考{{
+              number(priceVolume(stock.symbol)?.stopReference)
+            }}元
+          </p>
           <p>
             {{
               rules(stock.symbol, true)

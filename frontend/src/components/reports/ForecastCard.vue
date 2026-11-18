@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ObservationSummary from '../common/ObservationSummary.vue';
+import { forecastObservation } from '../../utils/observation-summaries';
 import TermHelp from '../common/TermHelp.vue';
 import type { ForecastView } from '../../types/models';
 import { number, timestamp } from '../../utils/format';
@@ -10,55 +12,63 @@ defineProps<{ forecast: ForecastView }>();
       {{ forecast.name }}
       <small>{{ forecast.symbol }}</small>
     </h3>
-    <template v-if="forecast.latest">
-      <p class="help-text">
-        首次观测于 {{ timestamp(forecast.latest.availableAt) }} · 近六个月评级机构
-        {{ forecast.latest.ratingAgencies }} 家
-      </p>
-      <div class="forecast-estimates">
-        <div
-          v-for="item in forecast.latest.estimates"
-          :key="item.year"
-        >
-          <span>
-            <TermHelp
-              term="eps"
-              :label="`${item.year}年预测EPS`"
-            />
-          </span>
-          <strong>
-            {{ number(item.eps, 3) }}
-            <small>元/股</small>
-          </strong>
+    <ObservationSummary
+      :priority="forecastObservation(forecast)"
+      context="盈利预期先关注什么"
+    />
+    <details class="reading-details">
+      <summary>展开预测数值、历史修订与来源</summary>
+      <template v-if="forecast.latest">
+        <p class="help-text">
+          首次观测于 {{ timestamp(forecast.latest.availableAt) }} · 近六个月评级机构
+          {{ forecast.latest.ratingAgencies }} 家
+        </p>
+        <div class="forecast-estimates">
+          <div
+            v-for="item in forecast.latest.estimates"
+            :key="item.year"
+          >
+            <span>
+              <TermHelp
+                term="eps"
+                :label="`${item.year}年预测EPS`"
+              />
+            </span>
+            <strong>
+              {{ number(item.eps, 3) }}
+              <small>元/股</small>
+            </strong>
+          </div>
         </div>
-      </div>
-      <p>{{ forecast.explanation }}</p>
-      <ul v-if="forecast.changes.length">
-        <li
-          v-for="change in forecast.changes"
-          :key="change.year"
+        <p>{{ forecast.explanation }}</p>
+        <ul v-if="forecast.changes.length">
+          <li
+            v-for="change in forecast.changes"
+            :key="change.year"
+          >
+            {{ change.year }}年：{{ number(change.previousEps, 3) }} →
+            {{ number(change.currentEps, 3) }} 元/股，差额
+            {{ number(change.difference, 3) }}；对比观测
+            {{ timestamp(change.previousObservedAt) }} →
+            {{ timestamp(change.currentObservedAt) }}
+          </li>
+        </ul>
+        <p
+          v-if="forecast.collection.status === 'UNAVAILABLE'"
+          class="help-text"
         >
-          {{ change.year }}年：{{ number(change.previousEps, 3) }} →
-          {{ number(change.currentEps, 3) }} 元/股，差额
-          {{ number(change.difference, 3) }}；对比观测 {{ timestamp(change.previousObservedAt) }} →
-          {{ timestamp(change.currentObservedAt) }}
-        </li>
-      </ul>
-      <p
-        v-if="forecast.collection.status === 'UNAVAILABLE'"
-        class="help-text"
-      >
-        最近一次采集未成功，当前展示已保存快照，请核对观测时间。
-      </p>
-      <a
-        :href="forecast.latest.sourceUrl"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        查看供应商盈利预测来源 ↗
-      </a>
-    </template>
-    <p v-else>{{ forecast.explanation }}</p>
+          最近一次采集未成功，当前展示已保存快照，请核对观测时间。
+        </p>
+        <a
+          :href="forecast.latest.sourceUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          查看供应商盈利预测来源 ↗
+        </a>
+      </template>
+      <p v-else>{{ forecast.explanation }}</p>
+    </details>
     <details>
       <summary>预测口径与使用边界</summary>
       <ul>

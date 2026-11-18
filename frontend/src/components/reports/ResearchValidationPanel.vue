@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ValidationMarketPanel from './ValidationMarketPanel.vue';
 import StrategySimulationPanel from './StrategySimulationPanel.vue';
+import StrategyEvidenceSummary from './StrategyEvidenceSummary.vue';
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
 import SectionCard from '../common/SectionCard.vue';
 import StateBadge from '../common/StateBadge.vue';
@@ -322,6 +323,12 @@ async function cancel() {
       </div>
       <ValidationMarketPanel :summary="summary" />
       <template v-if="selectedStock">
+        <StrategyEvidenceSummary
+          :simulation="selectedStock.strategy"
+          :frozen-end="summary.end"
+          :date="date"
+          :reproducible="summary.verification?.matched === true"
+        />
         <StrategySimulationPanel :simulation="selectedStock.strategy" />
         <h3>技术规则回顾</h3>
         <div class="filter-bar filter-bar--compact">

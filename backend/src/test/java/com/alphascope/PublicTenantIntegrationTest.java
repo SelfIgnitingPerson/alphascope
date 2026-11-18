@@ -204,6 +204,23 @@ class PublicTenantIntegrationTest {
         .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
   }
 
+  @Test
+  void researchFocusUsesOnlyAuthenticatedUsersEnabledWatches() throws Exception {
+    var alice = register("focus-alice");
+    var bob = register("focus-bob");
+    try (var ignored = TenantContext.bind(alice.user())) {
+      portfolio.watch("300476.SZ", 5);
+    }
+    mvc.perform(get("/api/v1/research-focus").param("asOf", "2026-11-17").cookie(alice.session()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.total").value(1))
+        .andExpect(jsonPath("$.data.items[0].symbol").value("300476.SZ"));
+    mvc.perform(get("/api/v1/research-focus").param("asOf", "2026-11-17").cookie(bob.session()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.total").value(0))
+        .andExpect(jsonPath("$.data.items.length()").value(0));
+  }
+
   @Autowired com.alphascope.planning.mapper.ResearchPlanMapper planMapper;
 
   @Test
@@ -250,7 +267,9 @@ class PublicTenantIntegrationTest {
         .andExpect(jsonPath("$.data.items.length()").value(1));
     mvc.perform(get("/api/v1/plans").cookie(alice.session()))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.data.items[0].id").value(id));
+        .andExpect(jsonPath("$.data.items[0].id").value(id))
+        .andExpect(jsonPath("$.data.items[0].latestReviewDate").value("2026-11-16"))
+        .andExpect(jsonPath("$.data.items[0].latestReviewStatus").value("UNCHANGED"));
     mvc.perform(get("/api/v1/plans").cookie(bob.session()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.data.items.length()").value(0));

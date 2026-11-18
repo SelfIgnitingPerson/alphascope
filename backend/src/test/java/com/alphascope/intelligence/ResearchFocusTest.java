@@ -1,0 +1,187 @@
+package com.alphascope.intelligence;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+import com.alphascope.intelligence.calculator.ResearchFocusCalculator;
+import com.alphascope.intelligence.dto.ResearchFocusInput;
+import com.alphascope.intelligence.dto.ResearchFocusQuery;
+import com.alphascope.intelligence.service.HoldingResearchService;
+import com.alphascope.intelligence.service.impl.ResearchFocusServiceImpl;
+import com.alphascope.intelligence.vo.HoldingResearchView;
+import com.alphascope.market.service.MarketService;
+import com.alphascope.portfolio.service.PortfolioService;
+import com.alphascope.portfolio.vo.WatchlistView;
+import java.time.LocalDate;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+/**
+ * 两期变化必须有完整同源对照；当前身份自选与单标的失败保持隔离。
+ *
+ * @author chenxuefeng
+ */
+class ResearchFocusTest {
+  private final LocalDate date = LocalDate.of(2026, 11, 17), previous = date.minusDays(1);
+
+  private HoldingResearchView view(LocalDate at, String state, boolean risk) {
+    var open =
+        HoldingResearchView.Action.builder()
+            .code("OPEN_PULLBACK")
+            .title("回踩建仓")
+            .conditionLogic("ALL")
+            .status(state)
+            .build();
+    var reduce =
+        HoldingResearchView.Action.builder()
+            .code("REDUCE")
+            .title("风险退出")
+            .conditionLogic("ANY")
+            .status(risk ? "CONDITIONAL_MATCH" : "WAIT")
+            .conclusion("已触发放量走弱")
+            .build();
+    return HoldingResearchView.builder()
+        .version("TEST_V1")
+        .symbol("600000.SH")
+        .name("测试")
+        .asOf(at)
+        .quoteDate(at)
+        .source("TEST")
+        .close(100.0)
+        .horizons(
+            List.of(
+                HoldingResearchView.Horizon.builder()
+                    .code("SHORT")
+                    .title("短期")
+                    .status(state)
+                    .actions(List.of(open, reduce))
+                    .missing(List.of())
+                    .build()))
+        .build();
+  }
+
+  @Test
+  void freshConditionsRequireSameMethodSourceAndCompletePreviousQuote() {
+    var now = view(date, "CONDITIONAL_MATCH", false);
+    var old = view(previous, "WAIT", false);
+    assertTrue(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(old)
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+    assertFalse(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(null)
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+    assertFalse(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(old.toBuilder().source("OTHER").build())
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+    assertFalse(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(old.toBuilder().version("OLD").build())
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+    assertFalse(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(old.toBuilder().quoteDate(previous.minusDays(1)).build())
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+    assertFalse(
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(view(previous, "CONDITIONAL_MATCH", false))
+                    .previousDate(previous)
+                    .build())
+            .newlyMatched());
+  }
+
+  @Test
+  void exitHasPriorityOverEntryAndStaleQuoteNeverConfirmsToday() {
+    var now = view(date, "CONDITIONAL_MATCH", true);
+    assertEquals(
+        "RISK",
+        ResearchFocusCalculator.compare(
+                ResearchFocusInput.builder()
+                    .current(now)
+                    .previous(null)
+                    .previousDate(previous)
+                    .build())
+            .category());
+    var stale = now.toBuilder().quoteDate(previous).build();
+    var result =
+        ResearchFocusCalculator.compare(
+            ResearchFocusInput.builder()
+                .current(stale)
+                .previous(null)
+                .previousDate(previous)
+                .build());
+    assertEquals("DATA_GAP", result.category());
+    assertFalse(result.newlyMatched());
+    assertTrue(result.explanation().contains(previous.toString()));
+  }
+
+  @Test
+  void oneFailureCannotHideOtherStocksAndDisabledWatchesAreNeverRead() {
+    var portfolio = mock(PortfolioService.class);
+    var research = mock(HoldingResearchService.class);
+    var market = mock(MarketService.class);
+    var service = new ResearchFocusServiceImpl(portfolio, research, market);
+    when(market.isOpen(date)).thenReturn(true);
+    when(portfolio.watchlistView())
+        .thenReturn(
+            List.of(
+                new WatchlistView("600001.SH", "失败", 2, true),
+                new WatchlistView("600000.SH", "正常", 1, true),
+                new WatchlistView("600002.SH", "停用", 0, false)));
+    when(research.read(eq("600001.SH"), any())).thenThrow(new IllegalStateException("内部细节不应公开"));
+    when(research.read(eq("600000.SH"), any())).thenReturn(view(date, "WAIT", false));
+    var query = new ResearchFocusQuery();
+    query.setAsOf(date);
+    query.setSize(1);
+    var first = service.read(query);
+    assertEquals(2, first.total());
+    assertEquals(1, first.items().size());
+    assertEquals("DATA_GAP", first.items().getFirst().category());
+    assertFalse(first.items().getFirst().explanation().contains("内部细节"));
+    query.setPage(2);
+    assertEquals("600000.SH", service.read(query).items().getFirst().symbol());
+    verify(research, never()).read(eq("600002.SH"), any());
+    query.setAsOf(LocalDate.of(2099, 1, 1));
+    assertThrows(IllegalArgumentException.class, () -> service.read(query));
+  }
+
+  @Test
+  void confirmedHolidayDoesNotBecomeAMissingQuoteOrStartResearch() {
+    var portfolio = mock(PortfolioService.class);
+    var research = mock(HoldingResearchService.class);
+    var market = mock(MarketService.class);
+    when(portfolio.watchlistView())
+        .thenReturn(List.of(new WatchlistView("600000.SH", "测试", 1, true)));
+    when(market.isOpen(date)).thenReturn(false);
+    var query = new ResearchFocusQuery();
+    query.setAsOf(date);
+    var result = new ResearchFocusServiceImpl(portfolio, research, market).read(query);
+    assertEquals("WAIT", result.items().getFirst().category());
+    assertTrue(result.items().getFirst().title().contains("休市"));
+    verifyNoInteractions(research);
+  }
+}

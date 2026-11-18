@@ -1,4 +1,5 @@
 import type { PriceVolumeStudy, PriceVolumeZone } from './price-volume';
+import type { ResearchPriority } from './research-priority';
 import type { PositionStrategy } from './position-strategy';
 
 /** 当前版本回顾视图，与报告冻结修订分别展示。 */
@@ -13,6 +14,8 @@ export interface HoldingResearch {
   horizons: HoldingHorizon[];
   priceVolume: PriceVolumeStudy;
   notes: string[];
+  /** 当前服务端观察优先级；旧冻结记录不补造。 */
+  priorities?: ResearchPriority[];
 }
 /** 每个持有周期独立判断，不从短期方案外推长期价值。 */
 export interface HoldingHorizon {

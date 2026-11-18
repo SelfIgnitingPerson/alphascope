@@ -32,7 +32,11 @@ public record HoldingResearchView(
     /** 本次实际价格、财报及规则输入来源；旧冻结记录为空时不倒填。 */
     @com.fasterxml.jackson.annotation.JsonInclude(
             com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        java.util.Set<String> inputSources) {
+        java.util.Set<String> inputSources,
+    /** 当前研究的观察优先级；旧冻结记录缺省，不倒填。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        List<ResearchPriority> priorities) {
   /**
    * 单一持有周期的判断、行动条件与缺项。
    *

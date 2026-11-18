@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import DailyResearchFocus from '../components/research/DailyResearchFocus.vue';
 import TermHelp from '../components/common/TermHelp.vue';
 import MarketScorePanel from '../components/reports/MarketScorePanel.vue';
 import MarketObservationCard from '../components/reports/MarketObservationCard.vue';
@@ -58,16 +59,24 @@ const quotes = useResource(async (signal) => {
 }, query);
 </script>
 <template>
-  <div class="notice notice--subtle">
-    <strong>研究使用顺序</strong>
-    <span>先核对市场与数据，再选择关注股票，按持有周期制定行动计划。</span>
-    <RouterLink
-      to="/help"
-      class="text-link"
-    >
-      新用户快速上手 →
-    </RouterLink>
-  </div>
+  <DailyResearchFocus
+    :date="date"
+    :refresh-token="refreshToken"
+  />
+
+  <details class="reading-details">
+    <summary>新用户使用顺序</summary>
+    <div class="notice notice--subtle">
+      <strong>研究使用顺序</strong>
+      <span>先核对市场与数据，再选择关注股票，按持有周期制定行动计划。</span>
+      <RouterLink
+        to="/help"
+        class="text-link"
+      >
+        新用户快速上手 →
+      </RouterLink>
+    </div>
+  </details>
   <div
     v-if="readiness.data.value?.issues.length"
     class="notice notice--warning"
@@ -194,13 +203,16 @@ const quotes = useResource(async (signal) => {
       />
     </AsyncState>
   </SectionCard>
-  <MarketScorePanel
-    :date="date"
-    :refresh-token="refreshToken"
-  />
+  <details class="reading-details">
+    <summary>展开市场五维评分与完整覆盖核验</summary>
+    <MarketScorePanel
+      :date="date"
+      :refresh-token="refreshToken"
+    />
+  </details>
   <div class="dashboard-columns">
     <SectionCard
-      title="关注标的"
+      title="自选行情速览"
       description="分别显示来源和日期；涨跌比较最近两条同源已存复权收盘，不保证为相邻交易日。"
     >
       <template #actions>
@@ -224,7 +236,7 @@ const quotes = useResource(async (signal) => {
           <RouterLink
             v-for="stock in quotes.data.value"
             :key="stock.symbol"
-            :to="`/stocks/${stock.symbol}`"
+            :to="{ path: `/stocks/${stock.symbol}`, query: { date } }"
             class="quote-row"
           >
             <div>
@@ -272,52 +284,55 @@ const quotes = useResource(async (signal) => {
         </div>
       </AsyncState>
     </SectionCard>
-    <SectionCard
-      title="数据与运行"
-      description="已保存内容仍可读取，通道状态不等于行情已更新。"
-    >
-      <template #actions>
-        <RouterLink
-          to="/channels"
-          class="text-link"
-        >
-          查看通道 →
-        </RouterLink>
-      </template>
-      <AsyncState
-        :loading="channels.loading.value"
-        :error="channels.error.value"
-        :has-content="Boolean(channels.data.value)"
-        @retry="channels.reload"
+    <details class="reading-details">
+      <summary>行情通道与运行详情（按需查看）</summary>
+      <SectionCard
+        title="数据与运行"
+        description="已保存内容仍可读取，通道状态不等于行情已更新。"
       >
-        <div
-          v-for="channel in channels.data.value?.channels"
-          :key="channel.channel"
-          class="channel-preview"
+        <template #actions>
+          <RouterLink
+            to="/channels"
+            class="text-link"
+          >
+            查看通道 →
+          </RouterLink>
+        </template>
+        <AsyncState
+          :loading="channels.loading.value"
+          :error="channels.error.value"
+          :has-content="Boolean(channels.data.value)"
+          @retry="channels.reload"
         >
-          <div>
-            <strong>{{ sourceName(channel.channel) }}</strong>
-            <small>
-              {{
-                channel.lastSuccess
-                  ? `最近成功 ${timestamp(channel.lastSuccess)}`
-                  : '尚无本次进程成功记录'
-              }}
-            </small>
+          <div
+            v-for="channel in channels.data.value?.channels"
+            :key="channel.channel"
+            class="channel-preview"
+          >
+            <div>
+              <strong>{{ sourceName(channel.channel) }}</strong>
+              <small>
+                {{
+                  channel.lastSuccess
+                    ? `最近成功 ${timestamp(channel.lastSuccess)}`
+                    : '尚无本次进程成功记录'
+                }}
+              </small>
+            </div>
+            <StateBadge
+              :value="channel.state"
+              context="channel"
+            />
           </div>
-          <StateBadge
-            :value="channel.state"
-            context="channel"
-          />
-        </div>
-        <RouterLink
-          to="/jobs"
-          class="secondary-link"
-        >
-          进入任务中心 →
-        </RouterLink>
-      </AsyncState>
-    </SectionCard>
+          <RouterLink
+            to="/jobs"
+            class="secondary-link"
+          >
+            进入任务中心 →
+          </RouterLink>
+        </AsyncState>
+      </SectionCard>
+    </details>
   </div>
   <SectionCard
     title="最新研究报告"

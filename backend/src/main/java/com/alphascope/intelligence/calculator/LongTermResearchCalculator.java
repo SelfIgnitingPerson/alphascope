@@ -105,6 +105,18 @@ final class LongTermResearchCalculator {
     boolean risk = Boolean.TRUE.equals(financialRisk) || !currentRules.isEmpty();
     Boolean riskObserved =
         risk ? Boolean.TRUE : financialRisk != null && fullyChecked ? Boolean.FALSE : null;
+    String triggeredRules =
+        currentRules.stream()
+            .map(
+                event ->
+                    switch (event.getRuleCode()) {
+                      case "PROFIT_SLOWDOWN" -> "利润增速放缓";
+                      case "CASHFLOW_WARNING" -> "现金流恶化";
+                      case "MARGIN_DECLINE" -> "毛利率下降";
+                      default -> "待核对财报规则";
+                    })
+            .distinct()
+            .collect(java.util.stream.Collectors.joining("、"));
     var conditions =
         List.of(
             new Condition(
@@ -180,10 +192,12 @@ final class LongTermResearchCalculator {
                     List.of(
                         new Condition(
                             "经营风险",
-                            "本期已触发财报规则"
-                                + currentRules.size()
-                                + "项；非正利润或负现金流="
-                                + (financialRisk == null ? "待核验" : financialRisk),
+                            "本期财报风险规则："
+                                + (triggeredRules.isEmpty() ? "暂无已触发记录" : triggeredRules)
+                                + "；非正利润或负现金流："
+                                + (financialRisk == null
+                                    ? "资料待核验"
+                                    : financialRisk ? "已观察到" : "未观察到"),
                             "出现利润、现金流或毛利率风险后复核持续性",
                             riskObserved),
                         new Condition(

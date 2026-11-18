@@ -70,6 +70,14 @@ public interface ResearchPlanMapper {
   List<PlanReview> reviews(PlanReviewQuery query);
 
   /**
+   * 一次读取当前页各计划最后保存的复核，避免每行查询完整历史。
+   *
+   * @param query 已归属当前身份的分页主键
+   * @return 每个计划至多一条复核，缺失时不补造
+   */
+  List<PlanReview> latestReviews(com.alphascope.planning.dto.PlanReviewBatchQuery query);
+
+  /**
    * 统计所属用户计划的复核。
    *
    * @param id 计划主键

@@ -11,6 +11,7 @@ it('only submits evidence identity after explicit user action, never client pric
       date: '2026-11-16',
       horizon: 'SHORT',
       actionCode: 'OPEN_PULLBACK',
+      actionTitle: '回踩企稳建仓',
     },
     global: {
       stubs: {
@@ -19,6 +20,7 @@ it('only submits evidence identity after explicit user action, never client pric
       },
     },
   });
+  expect(w.text()).toContain('保存「回踩企稳建仓」观察方案');
   expect(savePlan).not.toHaveBeenCalled();
   await w.get('button').trigger('click');
   await flushPromises();

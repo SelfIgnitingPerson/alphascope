@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import HoldingResearchPanel from '../components/research/HoldingResearchPanel.vue';
+import FinancialResearchPanel from '../components/research/FinancialResearchPanel.vue';
 import SectionTabs from '../components/common/SectionTabs.vue';
 import AsyncState from '../components/common/AsyncState.vue';
 import SectionCard from '../components/common/SectionCard.vue';
@@ -14,7 +15,7 @@ import PriceChart from '../components/charts/PriceChart.vue';
 import { getInstrument, getBars, getIndicators, getFinancials, getSignals } from '../api/market';
 import { yearBefore } from '../utils/date';
 import { number, percent, pretty, sourceName, timestamp, ruleNames } from '../utils/format';
-const props = defineProps<PageProps & { symbol: string }>();
+const props = defineProps<PageProps & { symbol: string; initialHorizon?: string }>();
 // 主资料、行情、指标、财报与规则各自加载；可选资料故障不能遮住其余研究。
 const query = {
   watch: [() => props.symbol, () => props.date, () => props.refreshToken],
@@ -128,6 +129,7 @@ const indicator = computed(() => indicators.data.value?.at(-1));
           <template #plans>
             <HoldingResearchPanel
               :symbol="symbol"
+              :initial-horizon="initialHorizon"
               :date="date"
               :refresh-token="refreshToken"
             />
@@ -344,8 +346,8 @@ const indicator = computed(() => indicators.data.value?.at(-1));
           </template>
           <template #financials>
             <SectionCard
-              title="已披露财报"
-              description="金额：人民币元；只读取所选日期前已披露版本。"
+              title="财报对比与经营观察"
+              description="图表金额为亿元，原始表为人民币元；只读取截至所选研究日可用的披露版本。"
             >
               <AsyncState
                 :loading="financials.loading.value"
@@ -353,64 +355,10 @@ const indicator = computed(() => indicators.data.value?.at(-1));
                 :has-content="Boolean(financials.data.value)"
                 @retry="financials.reload"
               >
-                <el-table
-                  :data="financials.data.value?.items || []"
-                  empty-text="尚未登记可用的公开财报"
-                >
-                  <el-table-column
-                    prop="period_end"
-                    label="报告期"
-                    width="115"
-                  />
-                  <el-table-column
-                    label="营业收入"
-                    min-width="170"
-                  >
-                    <template #header>
-                      <TermHelp
-                        term="revenue"
-                        label="营业收入"
-                      />
-                    </template>
-                    <template #default="s">{{ number(s.row.revenue) }}</template>
-                  </el-table-column>
-                  <el-table-column
-                    label="净利润"
-                    min-width="170"
-                  >
-                    <template #header>
-                      <TermHelp
-                        term="revenue"
-                        label="净利润"
-                      />
-                    </template>
-                    <template #default="s">{{ number(s.row.net_profit) }}</template>
-                  </el-table-column>
-                  <el-table-column
-                    label="经营现金流"
-                    min-width="170"
-                  >
-                    <template #header>
-                      <TermHelp
-                        term="cashflow"
-                        label="经营现金流"
-                      />
-                    </template>
-                    <template #default="s">{{ number(s.row.operating_cashflow) }}</template>
-                  </el-table-column>
-                  <el-table-column
-                    label="毛利率"
-                    min-width="110"
-                  >
-                    <template #header>
-                      <TermHelp
-                        term="gross-margin"
-                        label="毛利率"
-                      />
-                    </template>
-                    <template #default="s">{{ percent(s.row.gross_margin) }}</template>
-                  </el-table-column>
-                </el-table>
+                <FinancialResearchPanel
+                  :items="financials.data.value?.items || []"
+                  :date="date"
+                />
               </AsyncState>
             </SectionCard>
           </template>

@@ -11,7 +11,7 @@ export const router = createRouter({
       component: () => import('../views/DashboardView.vue'),
       meta: {
         title: '市场总览',
-        description: '先看数据覆盖，再看关注标的与最新研究。',
+        description: '先看需要优先核对的风险，再跟踪观察条件和市场背景。',
         section: '/dashboard',
       },
     },
@@ -37,7 +37,12 @@ export const router = createRouter({
     {
       path: '/stocks/:symbol',
       component: () => import('../views/StockDetailView.vue'),
-      props: true,
+      props: (route) => ({
+        symbol: route.params.symbol,
+        initialHorizon: ['SHORT', 'MEDIUM', 'LONG'].includes(String(route.query.horizon))
+          ? String(route.query.horizon)
+          : undefined,
+      }),
       meta: {
         title: '个股研究',
         description: '按短、中、长期查看持有判断、买卖条件与原始证据。',
@@ -49,7 +54,7 @@ export const router = createRouter({
       component: () => import('../views/WatchlistView.vue'),
       meta: {
         title: '自选股',
-        description: '集中维护关注范围，从这里进入个股研究。',
+        description: '先看自选重点与风险，按需维护关注范围。',
         section: '/watchlist',
       },
     },
@@ -133,6 +138,11 @@ export const router = createRouter({
     {
       path: '/plans',
       component: () => import('../views/ResearchPlansView.vue'),
+      props: (route) => ({
+        initialPlanId: /^\d+$/.test(String(route.query.plan || ''))
+          ? Number(route.query.plan)
+          : undefined,
+      }),
       meta: {
         title: '研究计划',
         description: '冻结原始依据，按研究日追加复核，跟踪变化与失效条件。',

@@ -20,7 +20,7 @@ import java.util.List;
  * @author chenxuefeng
  */
 public final class HoldingResearchCalculator {
-  public static final String VERSION = "HOLDING_RESEARCH_V1";
+  public static final String VERSION = "HOLDING_RESEARCH_V2";
 
   private HoldingResearchCalculator() {}
 
@@ -48,26 +48,28 @@ public final class HoldingResearchCalculator {
             .filter(b -> b.getTradeDate() != null && !b.getTradeDate().isAfter(input.asOf()))
             .max(Comparator.comparing(MarketBarDO::getTradeDate))
             .orElse(null);
-    return HoldingResearchView.builder()
-        .version(VERSION)
-        .symbol(stock.symbol())
-        .name(stock.name())
-        .asOf(input.asOf())
-        .quoteDate(quote == null ? null : quote.getTradeDate())
-        .source(study.source())
-        .close(study.close())
-        .priceVolume(study)
-        .horizons(
-            List.of(
-                shortTerm(study),
-                MediumTermResearchCalculator.calculate(input, study),
-                LongTermResearchCalculator.calculate(input, study)))
-        .notes(
-            List.of(
-                "本页读取当前保存版本；查看历史日期属于当前版本回顾，不证明历史时点可得。冻结报告保留原修订。",
-                "短期关注量价和结构；中期关注趋势与回撤；长期关注经营、现金流、估值和核心逻辑。各周期不相互替代。",
-                "长期估值与竞争优势尚需人工核实，不把技术观察带标成长期合理价值。方法尚未完成历史效果验证。"))
-        .build();
+    var view =
+        HoldingResearchView.builder()
+            .version(VERSION)
+            .symbol(stock.symbol())
+            .name(stock.name())
+            .asOf(input.asOf())
+            .quoteDate(quote == null ? null : quote.getTradeDate())
+            .source(study.source())
+            .close(study.close())
+            .priceVolume(study)
+            .horizons(
+                List.of(
+                    shortTerm(study),
+                    MediumTermResearchCalculator.calculate(input, study),
+                    LongTermResearchCalculator.calculate(input, study)))
+            .notes(
+                List.of(
+                    "本页读取当前保存版本；查看历史日期属于当前版本回顾，不证明历史时点可得。冻结报告保留原修订。",
+                    "短期关注量价和结构；中期关注趋势与回撤；长期关注经营、现金流、估值和核心逻辑。各周期不相互替代。",
+                    "长期估值与竞争优势尚需人工核实，不把技术观察带标成长期合理价值。方法尚未完成历史效果验证。"))
+            .build();
+    return view.toBuilder().priorities(ResearchPriorityCalculator.observations(view)).build();
   }
 
   private static Horizon shortTerm(PriceVolumeStudy study) {
@@ -96,9 +98,18 @@ public final class HoldingResearchCalculator {
                         .build())
             .toList();
     String status =
-        actions.stream().anyMatch(a -> "WATCH".equals(a.status()))
+        actions.stream()
+                .anyMatch(
+                    a ->
+                        "ANY".equals(a.conditionLogic())
+                            && ("WATCH".equals(a.status())
+                                || "CONDITIONAL_MATCH".equals(a.status())))
             ? "WATCH"
-            : actions.stream().anyMatch(a -> "CONDITIONAL_MATCH".equals(a.status()))
+            : actions.stream()
+                    .anyMatch(
+                        a ->
+                            "ALL".equals(a.conditionLogic())
+                                && "CONDITIONAL_MATCH".equals(a.status()))
                 ? "CONDITIONAL_MATCH"
                 : actions.stream().anyMatch(a -> "RISK_BLOCKED".equals(a.status()))
                     ? "RISK_BLOCKED"
@@ -113,7 +124,9 @@ public final class HoldingResearchCalculator {
                 ? "先复核减仓或风险退出，暂停新增风险；具体触发见下列方案。"
                 : "CONDITIONAL_MATCH".equals(status)
                     ? "有方案满足本期行情条件，核对观察带、失效条件和个人前提后再决定。"
-                    : "等待独立买入条件；当前没有买入确认，按已列价带与量能要求跟踪。")
+                    : "RISK_BLOCKED".equals(status)
+                        ? "当前建仓或加仓方案未通过风险过滤，暂不新增；列示价格仅保留作结构观察。"
+                        : "等待独立买入条件；当前没有买入确认，按已列价带与量能要求跟踪。")
         .actions(actions)
         .evidence(study.evidence())
         .missing(List.of())

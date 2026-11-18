@@ -150,4 +150,81 @@ class ResearchPlanTest {
     assertThrows(IllegalArgumentException.class, () -> service.review(7, new PlanReviewInput(end)));
     verify(mapper, never()).review(any());
   }
+
+  @Test
+  void sameSummaryStatusStillDetectsChangedIndividualCondition() {
+    var row = seed();
+    var before = view(start, 100.0, "TEST");
+    var first = before.horizons().getFirst().actions().getFirst();
+    var oldAction =
+        HoldingResearchView.Action.builder()
+            .code(first.code())
+            .status("WAIT")
+            .stopReference(90.0)
+            .conditions(
+                List.of(
+                    new com.alphascope.intelligence.vo.PositionStrategy.Condition(
+                        "量能", "旧实测", "门槛", false)))
+            .build();
+    var oldView =
+        before.toBuilder()
+            .horizons(
+                List.of(
+                    HoldingResearchView.Horizon.builder()
+                        .code("SHORT")
+                        .status("WAIT")
+                        .actions(List.of(oldAction))
+                        .build()))
+            .build();
+    row.setSnapshotJson(Jsons.write(new PlanEvidence(oldView, BigDecimal.ONE)));
+    row.setSnapshotHash(Jsons.hash(row.getSnapshotJson()));
+    var changed =
+        HoldingResearchView.Action.builder()
+            .code(first.code())
+            .status("WAIT")
+            .stopReference(90.0)
+            .conditions(
+                List.of(
+                    new com.alphascope.intelligence.vo.PositionStrategy.Condition(
+                        "量能", "新实测", "门槛", true)))
+            .build();
+    when(research.read(anyString(), any()))
+        .thenReturn(
+            view(end, 100.0, "TEST").toBuilder()
+                .horizons(
+                    List.of(
+                        HoldingResearchView.Horizon.builder()
+                            .code("SHORT")
+                            .status("WAIT")
+                            .actions(List.of(changed))
+                            .build()))
+                .build());
+    var bar = new MarketBarDO();
+    bar.setTradeDate(end);
+    bar.setSource("TEST");
+    bar.setFactor(BigDecimal.ONE);
+    when(market.bars(anyString(), any())).thenReturn(List.of(bar));
+    assertEquals("CONDITIONS_CHANGED", service.review(7, new PlanReviewInput(end)).status());
+  }
+
+  @Test
+  void intradayOriginalStopTouchRemainsVisibleEvenAfterCloseRecovers() {
+    seed();
+    when(research.read(anyString(), any())).thenReturn(view(end, 105.0, "TEST"));
+    var breach = new MarketBarDO();
+    breach.setTradeDate(end.minusDays(1));
+    breach.setSource("TEST");
+    breach.setLow(BigDecimal.valueOf(89));
+    breach.setFactor(BigDecimal.ONE);
+    var last = new MarketBarDO();
+    last.setTradeDate(end);
+    last.setSource("TEST");
+    last.setLow(BigDecimal.valueOf(100));
+    last.setFactor(BigDecimal.ONE);
+    when(market.bars(anyString(), any())).thenReturn(List.of(breach, last));
+    var result = service.review(7, new PlanReviewInput(end));
+    assertEquals("ORIGINAL_STOP_BREACHED", result.status());
+    assertTrue(result.explanation().contains(end.minusDays(1).toString()));
+    assertTrue(result.explanation().contains("收盘收复"));
+  }
 }

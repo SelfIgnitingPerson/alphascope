@@ -92,8 +92,40 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
   @Override
   public PageResponse<PlanSummary> page(PlanQuery query) {
     query.validate();
-    return new PageResponse<>(
-        mapper.page(query), mapper.count(query), query.getPage(), query.getSize());
+    var rows = mapper.page(query);
+    var latest = new java.util.HashMap<Long, PlanReviewView>();
+    if (!rows.isEmpty()) {
+      for (var review :
+          mapper.latestReviews(
+              new com.alphascope.planning.dto.PlanReviewBatchQuery(
+                  rows.stream().map(PlanSummary::id).toList()))) {
+        if (!Jsons.hash(review.getReviewJson()).equals(review.getReviewHash()))
+          throw new IllegalStateException("计划复核指纹不匹配");
+        var view = Jsons.read(review.getReviewJson(), PlanReviewView.class);
+        if (view.planId() != review.getPlanId()) throw new IllegalStateException("计划复核归属不匹配");
+        latest.put(review.getPlanId(), view);
+      }
+    }
+    var items =
+        rows.stream()
+            .map(
+                row -> {
+                  var review = latest.get(row.id());
+                  return new PlanSummary(
+                      row.id(),
+                      row.symbol(),
+                      row.name(),
+                      row.horizon(),
+                      row.actionCode(),
+                      row.archived(),
+                      row.createdAt(),
+                      row.asOf(),
+                      review == null ? null : review.date(),
+                      review == null ? null : review.status(),
+                      review == null ? null : review.explanation());
+                })
+            .toList();
+    return new PageResponse<>(items, mapper.count(query), query.getPage(), query.getSize());
   }
 
   /** {@inheritDoc} */
@@ -187,15 +219,41 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
               originalAction.stopReference()
                   * originalFactor.doubleValue()
                   / last.get().getFactor().doubleValue();
-        if (stop != null && current.close() <= stop) {
+        var touched =
+            bars.stream()
+                .filter(
+                    b ->
+                        b.getTradeDate().isAfter(original.asOf())
+                            && !b.getTradeDate().isAfter(input.date())
+                            && Objects.equals(b.getSource(), original.source())
+                            && b.getLow() != null
+                            && b.getFactor() != null
+                            && b.getFactor().signum() > 0)
+                .filter(
+                    b ->
+                        originalAction.stopReference() != null
+                            && b.getLow().doubleValue() * b.getFactor().doubleValue()
+                                <= originalAction.stopReference() * originalFactor.doubleValue())
+                .map(b -> b.getTradeDate())
+                .min(java.time.LocalDate::compareTo);
+        if (touched.isPresent() || (stop != null && current.close() <= stop)) {
           status = "ORIGINAL_STOP_BREACHED";
-          explanation = "当前收盘已到达或跌破原风险线（已核对同源因子尺度），优先复核原计划，不向下重设止损。";
+          explanation =
+              (touched.isPresent()
+                      ? touched.get() + "盘中最低价已触及原风险线，即使随后收盘收复也保留该风险事实。"
+                      : "当前收盘已到达或跌破原风险线。")
+                  + "已核对同源因子尺度，优先复核原计划，不向下重设止损。";
         } else {
           status =
-              action.isPresent() && Objects.equals(originalAction.status(), action.get().status())
+              action.isPresent()
+                      && Objects.equals(originalAction.status(), action.get().status())
+                      && sameConditions(originalAction, action.get())
                   ? "UNCHANGED"
                   : "CONDITIONS_CHANGED";
-          explanation = "原风险线未确认失守；当前方案状态仅供对照，不表示原买卖条件已经满足。";
+          explanation =
+              "CONDITIONS_CHANGED".equals(status)
+                  ? "方案总状态或具体条件满足情况已变化；请逐项核对当前方案，不能由总状态相同推断条件没有变化。"
+                  : "本次已有有效行情未确认触及原风险线，方案总状态与逐项条件满足情况一致；不表示原买卖条件已经满足。";
         }
       } else {
         status = "DATA_INSUFFICIENT";
@@ -221,6 +279,23 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
     review.setReviewHash(Jsons.hash(review.getReviewJson()));
     mapper.review(review);
     return result;
+  }
+
+  /** 比较三态条件结果，不把每天变化的实测价格误当成规则条件改变。 */
+  private static boolean sameConditions(
+      HoldingResearchView.Action original, HoldingResearchView.Action current) {
+    var before = original.conditions();
+    var after = current.conditions();
+    if (before == null || after == null) return false;
+    if (before.size() != after.size()) return false;
+    return before.stream()
+        .allMatch(
+            c ->
+                after.stream()
+                    .anyMatch(
+                        v ->
+                            Objects.equals(c.label(), v.label())
+                                && Objects.equals(c.met(), v.met())));
   }
 
   private HoldingResearchQuery query(java.time.LocalDate date) {

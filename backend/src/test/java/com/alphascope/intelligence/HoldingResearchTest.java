@@ -163,6 +163,32 @@ class HoldingResearchTest {
     assertEquals("WAIT", value.horizons().get(2).actions().getFirst().status());
   }
 
+  @Test
+  void aMatchedReductionMustNeverBeSummarizedAsAnEntryMatch() {
+    var base = input(300);
+    var last = base.stock().history().getLast();
+    var close = last.getClose().multiply(BigDecimal.valueOf(.85));
+    last.setOpen(close);
+    last.setClose(close);
+    last.setHigh(close.add(BigDecimal.ONE));
+    last.setLow(close.subtract(BigDecimal.ONE));
+    last.setAmount(BigDecimal.valueOf(10000000));
+    var result = HoldingResearchCalculator.calculate(base);
+    var shortTerm = result.horizons().getFirst();
+    assertTrue(
+        shortTerm.actions().stream()
+            .anyMatch(
+                a -> "ANY".equals(a.conditionLogic()) && "CONDITIONAL_MATCH".equals(a.status())),
+        "本例必须实际触发减仓方案");
+    assertTrue(
+        shortTerm.actions().stream()
+            .filter(a -> "ALL".equals(a.conditionLogic()))
+            .allMatch(a -> !"CONDITIONAL_MATCH".equals(a.status())));
+    assertEquals("WATCH", shortTerm.status());
+    assertTrue(shortTerm.conclusion().contains("暂停新增风险"));
+    assertFalse(shortTerm.conclusion().contains("有方案满足本期行情条件"));
+  }
+
   private HoldingResearchInput input(int size) {
     var dates = new ArrayList<LocalDate>();
     var cursor = date;

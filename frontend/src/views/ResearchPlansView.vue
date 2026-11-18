@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch, computed } from 'vue';
+import {
+  planActionLabels,
+  planReviewLabels as statuses,
+  planReviewExplanations,
+  researchMethodLabel,
+} from '../content/plan-labels';
+import ObservationSummary from '../components/common/ObservationSummary.vue';
+import { planObservation } from '../utils/observation-summaries';
+import TermHelp from '../components/common/TermHelp.vue';
+import RiskReferenceGuide from '../components/research/RiskReferenceGuide.vue';
 import SectionCard from '../components/common/SectionCard.vue';
 import AsyncState from '../components/common/AsyncState.vue';
 import { useResource } from '../composables/useResource';
@@ -16,12 +26,12 @@ import {
 } from '../api/plans';
 import { number, timestamp } from '../utils/format';
 import type { PageProps, PageResponse } from '../types/models';
-const props = defineProps<PageProps>();
+const props = defineProps<PageProps & { initialPlanId?: number }>();
 const page = ref(1);
-const filters = ref<Omit<PlanFilters, 'page' | 'size'>>({});
+const filters = ref<Omit<PlanFilters, 'page' | 'size'>>({ archived: false });
 const symbol = ref('');
 const horizon = ref('');
-const archiveStatus = ref('');
+const archiveStatus = ref('active');
 const plan = ref<ResearchPlan>();
 const { data, loading, error, reload } = useResource(
   (signal) => getPlans({ ...filters.value, page: page.value, size: 20 }, signal),
@@ -45,7 +55,7 @@ function applyFilters() {
 async function select(id: number) {
   await mutation.run(async () => {
     plan.value = await getPlan(id);
-    reviews.value = undefined;
+    reviews.value = await getPlanReviews(id);
   });
 }
 async function read(id: number, reviewPage = 1) {
@@ -56,7 +66,9 @@ async function read(id: number, reviewPage = 1) {
 async function review(id: number) {
   await mutation.run(async () => {
     await reviewPlan(id, props.date);
+    plan.value = await getPlan(id);
     reviews.value = await getPlanReviews(id);
+    await reload();
   });
 }
 async function archive(id: number) {
@@ -67,15 +79,59 @@ async function archive(id: number) {
   });
 }
 const horizonLabels: Record<string, string> = { SHORT: '短期', MEDIUM: '中期', LONG: '长期' };
-const statuses: Record<string, string> = {
-  UNCHANGED: '行情状态未变化',
-  CONDITIONS_CHANGED: '行情条件已变化',
-  ORIGINAL_STOP_BREACHED: '原风险线已触及',
-  METHOD_CHANGED: '方法已变更，需重评',
-  SOURCE_CHANGED: '来源已变化，需核对',
-  DATA_INSUFFICIENT: '复核资料不足',
-  REVIEW_REQUIRED: '需人工复核',
-};
+const pageFocus = ref('ALL');
+const rowFocus = (row: import('../api/plans').PlanSummary) =>
+  row.archived || row.asOf > props.date
+    ? 'ARCHIVED'
+    : row.latestReviewDate &&
+        row.latestReviewDate <= props.date &&
+        row.latestReviewStatus === 'ORIGINAL_STOP_BREACHED'
+      ? 'RISK'
+      : row.latestReviewDate &&
+          row.latestReviewDate <= props.date &&
+          ['CONDITIONS_CHANGED', 'METHOD_CHANGED', 'SOURCE_CHANGED'].includes(
+            row.latestReviewStatus || '',
+          )
+        ? 'CHANGED'
+        : row.latestReviewDate &&
+            row.latestReviewDate <= props.date &&
+            row.latestReviewStatus === 'DATA_INSUFFICIENT'
+          ? 'DATA'
+          : row.latestReviewDate !== props.date
+            ? 'DUE'
+            : 'REVIEWED';
+const focusTabs = [
+  { code: 'ALL', label: '全部计划' },
+  { code: 'RISK', label: '原风险线已触及' },
+  { code: 'CHANGED', label: '条件或口径变化' },
+  { code: 'DATA', label: '复核资料不足' },
+  { code: 'DUE', label: '尚待所选日复核' },
+];
+const visiblePlans = computed(() =>
+  (data.value?.items || [])
+    .filter((row) => pageFocus.value === 'ALL' || rowFocus(row) === pageFocus.value)
+    .sort(
+      (a, b) =>
+        ['RISK', 'CHANGED', 'DATA', 'DUE', 'REVIEWED', 'ARCHIVED'].indexOf(rowFocus(a)) -
+        ['RISK', 'CHANGED', 'DATA', 'DUE', 'REVIEWED', 'ARCHIVED'].indexOf(rowFocus(b)),
+    ),
+);
+watch([() => props.date, page, filters], () => {
+  pageFocus.value = 'ALL';
+});
+const dueOnPage = computed(
+  () =>
+    (data.value?.items || []).filter(
+      (row) => !row.archived && row.asOf <= props.date && row.latestReviewDate !== props.date,
+    ).length,
+);
+watch(
+  () => props.initialPlanId,
+  (id) => {
+    if (id && Number.isSafeInteger(id) && id > 0) void select(id);
+  },
+  { immediate: true },
+);
 </script>
 <template>
   <div class="page-stack">
@@ -97,6 +153,11 @@ const statuses: Record<string, string> = {
         title="个人研究计划"
         description="先按证券、周期和归档状态筛选，再打开原始证据。归档保留记录，不释放存储配额。"
       >
+        <ObservationSummary
+          v-if="data?.items.length"
+          :priority="planObservation({ rows: data.items, date })"
+          context="研究计划先处理什么"
+        />
         <form
           class="plan-filters"
           @submit.prevent="applyFilters"
@@ -148,8 +209,36 @@ const statuses: Record<string, string> = {
             查询计划
           </el-button>
         </form>
+        <p
+          class="help-text"
+          v-if="data?.items.length"
+          data-testid="plan-due-count"
+        >
+          本页 {{ dueOnPage }} 份跟踪计划尚无
+          {{ date }} 的最近复核。日期不同的旧复核不代表本日条件仍成立。
+        </p>
+        <div
+          class="plan-focus-filters"
+          role="group"
+          aria-label="筛选本页计划重点"
+        >
+          <button
+            v-for="tab in focusTabs"
+            :key="tab.code"
+            type="button"
+            :aria-pressed="pageFocus === tab.code"
+            @click="pageFocus = tab.code"
+          >
+            {{ tab.label }}
+            {{
+              (data?.items || []).filter((row) => tab.code === 'ALL' || rowFocus(row) === tab.code)
+                .length
+            }}
+          </button>
+        </div>
+        <p class="help-text">上述分类与排序只针对本页；分页之外的计划尚未在本页列出。</p>
         <el-table
-          :data="data?.items || []"
+          :data="visiblePlans"
           empty-text="暂无匹配计划，请在个股研究中保存计划。"
         >
           <el-table-column
@@ -157,6 +246,14 @@ const statuses: Record<string, string> = {
             min-width="160"
           >
             <template #default="{ row }">{{ row.name }} {{ row.symbol }}</template>
+          </el-table-column>
+          <el-table-column
+            label="观察方案"
+            min-width="180"
+          >
+            <template #default="{ row }">
+              {{ planActionLabels[row.actionCode] || '历史方案（见原始记录）' }}
+            </template>
           </el-table-column>
           <el-table-column
             label="周期"
@@ -176,8 +273,28 @@ const statuses: Record<string, string> = {
             <template #default="{ row }">{{ row.archived ? '已归档' : '跟踪中' }}</template>
           </el-table-column>
           <el-table-column
+            label="最近保存复核"
+            min-width="220"
+          >
+            <template #default="{ row }">
+              <template v-if="row.latestReviewDate">
+                <strong>
+                  {{ row.latestReviewDate }} · {{ statuses[row.latestReviewStatus] || '待核对' }}
+                </strong>
+                <p class="help-text">
+                  {{
+                    row.latestReviewStatus === 'UNCHANGED'
+                      ? planReviewExplanations.UNCHANGED
+                      : row.latestReviewExplanation
+                  }}
+                </p>
+              </template>
+              <span v-else>尚未复核</span>
+            </template>
+          </el-table-column>
+          <el-table-column
             label="操作"
-            width="100"
+            min-width="190"
           >
             <template #default="{ row }">
               <el-button
@@ -185,6 +302,13 @@ const statuses: Record<string, string> = {
                 @click="select(row.id)"
               >
                 查看详情
+              </el-button>
+              <el-button
+                v-if="!row.archived && row.asOf <= date"
+                :disabled="mutation.busy.value"
+                @click="review(row.id)"
+              >
+                按 {{ date }} 复核
               </el-button>
             </template>
           </el-table-column>
@@ -224,11 +348,19 @@ const statuses: Record<string, string> = {
         <p>
           原研究收盘：
           <strong class="reference-price">{{ number(plan.research.close) }} 元</strong>
-          · 方法 {{ plan.research.version }}
         </p>
         <div class="plan-operations">
+          <RouterLink
+            :to="{
+              path: `/stocks/${plan.research.symbol}`,
+              query: { date, horizon: plan.horizon },
+            }"
+            class="text-link"
+          >
+            查看当前个股依据 →
+          </RouterLink>
           <el-button
-            v-if="!plan.archived"
+            v-if="!plan.archived && plan.research.asOf <= date"
             :loading="mutation.busy.value"
             @click="review(plan.id)"
           >
@@ -260,7 +392,11 @@ const statuses: Record<string, string> = {
             >
               <p>{{ a.conclusion }}</p>
               <p v-if="a.stopReference != null">
-                原结构风险线：
+                <TermHelp
+                  term="original-risk-reference"
+                  label="原方案风险参考"
+                />
+                ：
                 <strong class="reference-price">{{ number(a.stopReference) }} 元</strong>
               </p>
               <ul>
@@ -279,6 +415,20 @@ const statuses: Record<string, string> = {
               </ul>
             </article>
           </template>
+        </details>
+        <details
+          class="reading-details"
+          data-testid="plan-method-details"
+        >
+          <summary>查看分析规则与追溯编号</summary>
+          <p>
+            <TermHelp
+              term="research-method-version"
+              label="分析规则"
+            />
+            ：{{ researchMethodLabel(plan.research.version) }}
+          </p>
+          <p class="help-text">内部规则编号：{{ plan.research.version }}</p>
           <p class="help-text">证据指纹：{{ plan.snapshotHash }}</p>
         </details>
         <div v-if="reviews">
@@ -293,20 +443,50 @@ const statuses: Record<string, string> = {
             :key="index"
             class="plan-review"
           >
-            <strong>{{ item.date }} · {{ statuses[item.status] || '待核对' }}</strong>
-            <p>{{ item.explanation }}</p>
-            <p v-if="item.adjustedOriginalStop != null">
-              原风险线按同源因子换算：
-              <strong class="reference-price">{{ number(item.adjustedOriginalStop) }} 元</strong>
-              ；当前收盘 {{ number(item.close) }} 元
-            </p>
+            <strong>
+              {{ item.date }} ·
+              <TermHelp
+                v-if="item.status === 'UNCHANGED'"
+                term="plan-review-unchanged"
+                :label="statuses[item.status]"
+              />
+              <template v-else>{{ statuses[item.status] || '待核对' }}</template>
+            </strong>
+            <p>{{ planReviewExplanations[item.status] || item.explanation }}</p>
             <p
-              v-for="v in item.limitations"
-              :key="v"
+              v-if="item.date === plan.research.asOf"
               class="help-text"
+              data-testid="same-day-review-note"
             >
-              {{ v }}
+              本次复核日期与原研究日相同，尚未使用下一交易日的数据。
             </p>
+            <p v-if="item.adjustedOriginalStop != null">
+              <TermHelp
+                term="original-risk-reference"
+                label="原方案风险参考"
+              />
+              ：
+              <strong class="reference-price">{{ number(item.adjustedOriginalStop) }} 元</strong>
+              ·
+              <TermHelp
+                term="risk-price-adjustment"
+                label="已统一价格口径"
+              />
+              <br />
+              复核日收盘（{{ item.date }}）：{{ number(item.close) }} 元
+            </p>
+            <RiskReferenceGuide v-if="item.adjustedOriginalStop != null" />
+            <details class="reading-details">
+              <summary>查看原始复核记录与适用范围</summary>
+              <p>{{ item.explanation }}</p>
+              <p
+                v-for="v in item.limitations"
+                :key="v"
+                class="help-text"
+              >
+                {{ v }}
+              </p>
+            </details>
           </article>
           <div class="plan-operations">
             <span>共 {{ reviews.total }} 条复核 · 第 {{ reviews.page }} 页</span>
@@ -329,11 +509,29 @@ const statuses: Record<string, string> = {
   </div>
 </template>
 <style scoped>
+.plan-focus-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.plan-focus-filters button {
+  border: 1px solid #dce5ed;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #fff;
+  color: #536a80;
+  cursor: pointer;
+}
+.plan-focus-filters button[aria-pressed='true'] {
+  background: #eaf2f4;
+  border-color: #235970;
+}
 .plan-filters {
   display: grid;
   grid-template-columns: minmax(160px, 2fr) repeat(2, minmax(110px, 1fr)) auto;
   gap: 12px;
-  margin-bottom: 20px;
+  margin: 20px 0;
 }
 @media (max-width: 700px) {
   .plan-filters {
