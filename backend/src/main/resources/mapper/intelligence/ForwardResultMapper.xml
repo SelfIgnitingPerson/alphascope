@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.intelligence.mapper.ForwardResultMapper">
+ <insert id="save">INSERT IGNORE INTO forward_result(observation_id,action_code,window_days,metrics_json,input_json,content_hash,metrics_hash) VALUES(#{observationId},#{actionCode},#{windowDays},#{metricsJson},#{inputJson},#{contentHash},#{metricsHash})</insert>
+ <select id="summaries" resultType="com.alphascope.intelligence.entity.ForwardResult">
+ SELECT id,observation_id,action_code,window_days,metrics_json,NULL AS input_json,content_hash,metrics_hash,created_at
+ FROM forward_result WHERE created_at &lt;= #{cutoff}
+ <choose>
+  <when test="observationIds != null and !observationIds.isEmpty()">
+   AND observation_id IN
+   <foreach collection="observationIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </when>
+  <otherwise>AND 1=0</otherwise>
+ </choose>
+ ORDER BY id
+ </select>
+ <select id="get" resultType="com.alphascope.intelligence.entity.ForwardResult">SELECT id,observation_id,action_code,window_days,metrics_json,input_json,content_hash,metrics_hash,created_at FROM forward_result WHERE id=#{id}</select>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM forward_result</select>
+</mapper>

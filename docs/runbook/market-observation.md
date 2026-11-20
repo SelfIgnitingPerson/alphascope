@@ -14,11 +14,11 @@
 
 默认观察线：成交额扩张1.1倍、收缩0.9倍；MA20广度偏强60%、偏弱40%；均线最低覆盖98%。对应Spring属性位于 `alphascope.observation` 下：`turnover-expansion`、`turnover-contraction`、`breadth-strong`、`breadth-weak`、`minimum-coverage`。阈值在每份观察中保存，均为未完成效果验证的研究观察线。
 
-历史截面与因子采用单会话、逐项缓存；因子请求间隔至少1秒。首次回补可能耗时较长，应由研究任务执行。`warm-market-history 日期` 仅供无活动研究任务时的手工维护；不启动额外Web服务或任务队列，不与研究任务同时请求上游。
+历史补齐优先选用同时提供历史截面和复权因子的来源。BaoStock 先读取已有单股因子基线，再按交易日获取后续除权事件，并把实际批次与基线引用一并冻结。没有可用基线的证券才走单股补齐，单股因子请求间隔至少1秒。`warm-market-history 日期` 仅供无活动研究任务时的截面维护。
 
 ## 当前上游访问限制
 
-本次真实回补时BaoStock返回 `10001011`，已停止请求。全市场历史回补尚未完成，不能把现有缓存或自选股数量充作完整市场广度。页面显示已保存分项、空值、覆盖率和限制原因。
+BaoStock 返回 `10001011` 时，采集停止并记录实际错误。页面同时显示已保存的沪深分项、覆盖率和受限原因。
 
 原生客户端收到该错误会写入本机 `.runtime/baostock-access.json`；重启后仍停止请求，多通道状态为 `ACCESS_RESTRICTED`，不显示自动重试倒计时。机构预测与已保存行情仍可读取。仅在上游明确恢复后才能手工解除本机保护；修改本机标记本身不能解除上游限制。不要通过反复探测、并发或变更出口规避拒绝。
 
@@ -57,3 +57,22 @@
 当前新增新浪在市目录与东方财富日终报价/停复牌的交叉采集，并保留原文。能取得当天成交额、涨跌家数及可核对覆盖率；不完整批次明确PARTIAL。该源不回溯历史目录，未曾归档日期标为NOT_ARCHIVED，不使用今天股票名单构造过去全市场。成交额历史从每日完整归档自然积累；满连续20个交易日才输出5/20日均值。
 
 当前免费截面没有声明同源复权事件能力，广度计算保留不足状态，避免对数千只股票逐个发送不支持的请求。指数趋势仍可使用实际已保存的沪深300历史独立展示。两项缺口分别列示，完整当日截面不等于历史量能或均线广度完整。
+
+## 导入沪深北历史档案
+
+通过具备导出权限的 BigQuant 环境运行 `python scripts/data/export-bigquant-full-market.py 起始日期 截止日期 --evidence 交易所证据.json --output .runtime/full-market-import`。脚本将[逐日股票名册](https://bigquant.com/data/datasources/cn_stock_instruments)和[同源日线、累计后复权因子](https://bigquant.com/data/datasources/cn_stock_real_bar1d)与独立证据对齐。目标日发布 MA20、MA60 时，按当前模型准备截止日最近 82 个交易日，包含停牌留出的历史缓冲。
+
+证据 JSON 以交易日 `YYYY-MM-DD` 为键。每个日期填写 `expectedCounts` 和 `rosterSources`，均按 `SSE`、`SZSE`、`BSE` 列出实际在市 A 股数量及对应交易所 HTTPS 资料链接。核对数量时包含全天停牌证券。另填 `suspensions`，其键为证券代码，每条填写交易所公告 `sourceUrl` 和北京时间 `startAt`、`endAt`，使用 `YYYY-MM-DDTHH:MM:SS` 格式。明确没有全天停牌时填空对象。请用当日独立统计或名册核对数量，保留原资料。程序校验数值、来源域名和停牌时段，资料内容与口径由导入人核对。
+
+本地也可使用 [BigQuant 官方 SDK](https://bigquant.com/wiki/doc/vac4qwmQr4)。认证命令随 SDK 版本变化，请用 `bq auth --help` 查看当前版本。配置完成后用同一环境的 Python 执行导出脚本。先校验小样本，再按日期分批导出完整窗口。云端 AIStudio 可使用已登录会话运行。
+
+将导出的 `YYYY-MM-DD.json` 放进本机 `.runtime/full-market-import/`，再运行以下命令。首条执行文件校验，第二条核对交易日历、保存已通过核验的逐日档案并重算目标日。真正的入库时间和供应商导出时间一并保留。
+
+```bash
+bash scripts/tools.sh check-full-market 2026-11-18
+bash scripts/tools.sh import-full-market 2026-11-18
+```
+
+运行检查的「三所全A证据核验」显示导入来源与实际覆盖。单个文件需逐一匹配名单和交易行情，停牌资料、交易价格与复权因子缺项会指出具体证券。公开模式沿用来源授权登记。
+
+历史档案也可采用 `BAOSTOCK_SINA`。该口径使用证券宝的沪深逐日截面及因子、新浪的北交所未复权日线及因子。每个日期附中证数据日报总数和原文件指纹，或引用日期及名单完全一致的本机完整全 A 截面。统计纳入存托凭证时，`comparison.excludedInstruments` 保留证券代码与交易所公告。复算读取截至业务日连续通过核验的档案，未核验的因子、前收盘和涨跌家数保留缺项。公开模式校验档案标记及原始来源授权。

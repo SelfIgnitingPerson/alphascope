@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.portfolio.mapper.PortfolioHistoryMapper">
+ <insert id="save">INSERT IGNORE INTO portfolio_revision(record_kind,symbol,business_date,evidence_json,evidence_hash) VALUES(#{recordKind},#{symbol},#{businessDate},#{evidenceJson},#{evidenceHash})</insert>
+ <select id="recordedSymbols" resultType="string">SELECT DISTINCT symbol FROM portfolio_revision</select>
+ <select id="at" resultType="com.alphascope.portfolio.entity.PortfolioRevision">
+ SELECT id,record_kind,symbol,business_date,evidence_json,evidence_hash,created_at FROM (
+ SELECT r.*, ROW_NUMBER() OVER(PARTITION BY record_kind,symbol ORDER BY business_date DESC,id DESC) AS latest_rank
+ FROM portfolio_revision r WHERE business_date &lt;= #{asOf} AND created_at &lt;= #{cutoff}
+ ) ranked WHERE latest_rank=1 ORDER BY symbol
+ </select>
+</mapper>

@@ -53,6 +53,18 @@ public class MarketController {
   }
 
   /**
+   * 读取三所历史缺口和同源能力要求，刷新不发起网络采集。
+   *
+   * @param date 研究日期
+   * @return 可核验的补齐进度及下一步
+   */
+  @GetMapping("/readiness")
+  public Result<com.alphascope.market.vo.MarketReadinessView> readiness(
+      @RequestParam LocalDate date) {
+    return Result.success(fullMarket.readiness(date));
+  }
+
+  /**
    * 返回实际清单范围、交易所数量和全A覆盖证明缺项，不触发采集。
    *
    * @param date 精确业务日期

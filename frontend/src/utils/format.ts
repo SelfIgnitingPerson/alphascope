@@ -53,6 +53,9 @@ export function sourceName(value: string | undefined): string {
   const names: Record<string, string> = {
     MULTI: '多通道',
     BAOSTOCK: 'BaoStock',
+    BIGQUANT: 'BigQuant · 历史全 A',
+    BAOSTOCK_SINA: '证券宝与新浪 · 历史全 A',
+    CSDATA: '中证数据 · 市场统计',
     SINA: '新浪财经',
     EASTMONEY: '东方财富',
     EASTMONEY_DIRECTORY: '东方财富 · 证券目录',
@@ -96,4 +99,5 @@ export const stageNames: Record<string, string> = {
   SCORE_RULES: '评分与规则',
   REPORT: '生成报告',
   NOTIFICATION: '本地通知',
+  PLAN_REVIEW: '个人计划自动跟踪',
 };

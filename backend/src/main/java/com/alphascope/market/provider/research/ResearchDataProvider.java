@@ -6,6 +6,8 @@ import com.alphascope.market.dto.ResearchMarketSnapshot;
 import com.alphascope.market.provider.MarketCapability;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -40,6 +42,24 @@ public interface ResearchDataProvider extends AutoCloseable {
   }
 
   /**
+   * 声明是否能提供含沪、深、北三所的截面候选；每份响应仍须独立核验。
+   *
+   * @return 支持三所截面候选时为 true
+   */
+  default boolean fullMarketSnapshots() {
+    return false;
+  }
+
+  /**
+   * 仅提供全 A 当日备用快照时，不参与既有沪深历史窗口路由。
+   *
+   * @return 仅参与全 A 截面路由时为 true
+   */
+  default boolean fullMarketOnly() {
+    return false;
+  }
+
+  /**
    * 读取上游明确限流后的访问冷却终点，不发起探测。
    *
    * @return 冷却终点或null；过期标记不阻止后续受控访问
@@ -70,6 +90,16 @@ public interface ResearchDataProvider extends AutoCloseable {
    * @return 已核验日期范围的因子和原文
    */
   ResearchFactorWindow factors(ResearchFactorRequest request);
+
+  /**
+   * 获取某个开市日的完整除权事件批次，空列表只用于上游确认当日无事件。
+   *
+   * @param date 交易日
+   * @return 可追溯的实际供应商记录
+   */
+  default List<Map<String, String>> dailyFactorEvents(LocalDate date) {
+    throw new UnsupportedOperationException("当前来源未提供按日复权事件");
+  }
 
   /** 释放供应商会话，默认无持有资源。 */
   @Override

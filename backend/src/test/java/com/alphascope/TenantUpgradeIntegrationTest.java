@@ -44,6 +44,8 @@ class TenantUpgradeIntegrationTest {
         List.of(
             "storage_budget",
             "job_attempt_history",
+            "corporate_action",
+            "investment_thesis",
             "research_plan_review",
             "research_plan",
             "theme_leader_revision",

@@ -1,29 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.alphascope.planning.mapper.ResearchPlanMapper">
- <sql id="columns">id, symbol, horizon, action_code, snapshot_json, snapshot_hash, archived, created_at</sql>
+ <sql id="columns">id, symbol, horizon, action_code, snapshot_json, snapshot_hash, acknowledged_review_hash, archived, created_at</sql>
  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
  INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES(#{symbol},#{horizon},#{actionCode},#{snapshotJson},#{snapshotHash})
  </insert>
+ <select id="identicalPlan" resultType="com.alphascope.planning.entity.ResearchPlan">
+ SELECT <include refid="columns"/> FROM research_plan WHERE symbol=#{symbol} AND horizon=#{horizon}
+ AND action_code=#{actionCode} AND snapshot_hash=#{snapshotHash} ORDER BY id LIMIT 1
+ </select>
+ <select id="identicalReview" resultType="com.alphascope.planning.entity.PlanReview">
+ SELECT id,plan_id,review_json,review_hash,created_at FROM research_plan_review
+ WHERE plan_id=#{planId} AND review_hash=#{reviewHash} ORDER BY id LIMIT 1
+ </select>
  <sql id="filters">
- <where><if test="symbol != null">symbol=#{symbol}</if><if test="horizon != null">AND horizon=#{horizon}</if><if test="archived != null">AND archived=#{archived}</if></where>
+ <where><if test="symbol != null">symbol=#{symbol}</if><if test="horizon != null">AND horizon=#{horizon}</if><if test="archived != null">AND archived=#{archived}</if><if test="asOf != null">AND research_date &lt;= #{asOf}</if></where>
  </sql>
  <select id="page" resultType="com.alphascope.planning.vo.PlanSummary">
  SELECT id,symbol,JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.name')) AS name,horizon,action_code,archived,created_at,
- CAST(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.asOf')) AS DATE) AS as_of, NULL AS latest_review_date, NULL AS latest_review_status, NULL AS latest_review_explanation
+ research_date AS as_of, NULL AS latest_review_date, NULL AS latest_review_status, NULL AS latest_review_explanation, FALSE AS acknowledged, acknowledged_review_hash, JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.source')) AS source, NULL AS input_sources
  FROM research_plan <include refid="filters"/> ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
  </select>
  <select id="count" resultType="long">SELECT COUNT(*) FROM research_plan <include refid="filters"/></select>
  <select id="get" resultType="com.alphascope.planning.entity.ResearchPlan">SELECT <include refid="columns"/> FROM research_plan WHERE id=#{id}</select>
+ <update id="acknowledge">UPDATE research_plan SET acknowledged_review_hash=#{acknowledgedReviewHash} WHERE id=#{id}</update>
  <update id="archive">UPDATE research_plan SET archived=1 WHERE id=#{id}</update>
  <insert id="review" useGeneratedKeys="true" keyProperty="id">INSERT INTO research_plan_review(plan_id,review_json,review_hash) VALUES(#{planId},#{reviewJson},#{reviewHash})</insert>
- <select id="reviews" resultType="com.alphascope.planning.entity.PlanReview">SELECT id,plan_id,review_json,review_hash,created_at FROM research_plan_review WHERE plan_id=#{planId} ORDER BY id DESC LIMIT #{size} OFFSET #{offset}</select>
+ <select id="reviews" resultType="com.alphascope.planning.entity.PlanReview">SELECT id,plan_id,review_json,review_hash,created_at FROM research_plan_review WHERE plan_id=#{planId} ORDER BY review_date DESC,id DESC LIMIT #{size} OFFSET #{offset}</select>
  <select id="latestReviews" resultType="com.alphascope.planning.entity.PlanReview">
- SELECT r.id,r.plan_id,r.review_json,r.review_hash,r.created_at
+ SELECT id,plan_id,review_json,review_hash,created_at FROM (
+ SELECT r.*,ROW_NUMBER() OVER(PARTITION BY plan_id ORDER BY review_date DESC,id DESC) AS review_rank
  FROM research_plan_review r
- JOIN (SELECT plan_id,MAX(id) AS latest_id FROM research_plan_review
  WHERE plan_id IN <foreach collection="planIds" item="id" open="(" separator="," close=")">#{id}</foreach>
- GROUP BY plan_id) latest ON r.id=latest.latest_id
+ <if test="asOf != null">AND review_date &lt;= #{asOf}</if>
+ <if test="status != null">AND JSON_UNQUOTE(JSON_EXTRACT(review_json, '$.status'))=#{status}</if>
+ ) ranked WHERE review_rank=1
  </select>
  <select id="reviewCount" resultType="long">SELECT COUNT(*) FROM research_plan_review WHERE plan_id=#{id}</select>
  <select id="lockUser" resultType="java.lang.Long">SELECT id FROM app_user WHERE id=#{id} FOR UPDATE</select>

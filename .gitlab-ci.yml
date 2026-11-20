@@ -17,6 +17,7 @@ default:
       files: [pom.xml, frontend/package-lock.json]
     paths: [.m2/repository/, .npm/]
 variables:
+  GIT_DEPTH: '0'
   RUN_DB_TESTS: 'true'
   RUN_CONTAINER_TESTS: 'true'
   RUN_BROWSER_TESTS: 'true'

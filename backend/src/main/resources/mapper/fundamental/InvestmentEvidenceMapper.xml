@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.fundamental.mapper.InvestmentEvidenceMapper">
+ <insert id="saveAction">INSERT IGNORE INTO corporate_action(symbol,business_date,evidence_json,evidence_hash) VALUES(#{symbol},#{businessDate},#{evidenceJson},#{evidenceHash})</insert>
+ <insert id="saveThesis">INSERT IGNORE INTO investment_thesis(symbol,business_date,evidence_json,evidence_hash) VALUES(#{symbol},#{businessDate},#{evidenceJson},#{evidenceHash})</insert>
+ <select id="actions" resultType="com.alphascope.fundamental.entity.ResearchEvidenceRecord">
+ SELECT id,symbol,business_date,evidence_json,evidence_hash,created_at FROM (
+ SELECT a.*,ROW_NUMBER() OVER(PARTITION BY business_date,JSON_UNQUOTE(JSON_EXTRACT(evidence_json,'$.priceSource')) ORDER BY id DESC) AS rank_no
+ FROM corporate_action a WHERE symbol=#{symbol} AND business_date &lt;= #{asOf}
+ ) ranked WHERE rank_no=1 ORDER BY business_date
+ </select>
+ <select id="thesis" resultType="com.alphascope.fundamental.entity.ResearchEvidenceRecord">
+ SELECT id,symbol,business_date,evidence_json,evidence_hash,created_at FROM investment_thesis WHERE symbol=#{symbol} AND business_date &lt;= #{asOf} ORDER BY business_date DESC,id DESC LIMIT 1
+ </select>
+ <select id="thesisAtClose" resultType="com.alphascope.fundamental.entity.ResearchEvidenceRecord">
+ SELECT id,symbol,business_date,evidence_json,evidence_hash,created_at
+ FROM investment_thesis
+ WHERE symbol=#{symbol}
+   AND business_date &lt;= #{asOf}
+   AND created_at &lt;= TIMESTAMP(#{asOf}, '16:10:00')
+ ORDER BY business_date DESC,id DESC LIMIT 1
+ </select>
+</mapper>

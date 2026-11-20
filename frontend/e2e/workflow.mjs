@@ -20,7 +20,15 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(action, label, timeout = 90000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
-    const value = await action();
+    let value;
+    try {
+      value = await action();
+    } catch (error) {
+      if (
+        !/Execution context was destroyed|Cannot find context with specified id/.test(error.message)
+      )
+        throw new Error(`检查失败：${label}`, { cause: error });
+    }
     if (value) return value;
     await pause(200);
   }
@@ -104,16 +112,18 @@ chrome.stderr.on('data', (data) => {
   diagnostics = (diagnostics + data.toString()).slice(-12000);
 });
 let socket, session;
+let lastNavigation = 'about:blank';
 let sequence = 0;
 const pending = new Map();
 const exceptions = [];
 const failedResponses = [];
 function send(method, params = {}, sessionId = session) {
+  if (method === 'Page.navigate') lastNavigation = params.url;
   return new Promise((resolve, reject) => {
     const id = ++sequence;
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(Error('CDP命令超时：' + method));
+      reject(Error(`CDP 命令超时 ${method}，最近导航页面 ${lastNavigation}`));
     }, 30000);
     pending.set(id, { resolve, reject, timer });
     socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
@@ -226,6 +236,13 @@ try {
         status: message.params.response.status,
       });
     }
+  });
+  socket.addEventListener('close', () => {
+    for (const item of pending.values()) {
+      clearTimeout(item.timer);
+      item.reject(Error('Chrome 调试连接意外关闭'));
+    }
+    pending.clear();
   });
   await new Promise((resolve, reject) => {
     socket.addEventListener('open', resolve, { once: true });

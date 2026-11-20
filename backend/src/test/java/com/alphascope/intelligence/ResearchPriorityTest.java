@@ -113,7 +113,7 @@ class ResearchPriorityTest {
         ResearchFocusCalculator.compare(
                 input.previous(previous.toBuilder().source("OTHER").build()).build())
             .changeLabel()
-            .contains("缺少可比上期"));
+            .contains("数据来源已变化"));
   }
 
   @Test

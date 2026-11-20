@@ -4,7 +4,7 @@
 
 ## 两种运行方式
 
-LOCAL是个人开发模式，只接受直接回环连接，拒绝携带Forwarded/X-Forwarded-For的代理请求，使用保留空间1。它不能作为公网鉴权方式。PUBLIC要求真实会话、明确HTTPS来源与Secure Cookie；生产配置固定PUBLIC，不允许通过反向代理IP获得本机权限。
+LOCAL是单一研究空间模式，允许代理转发，不按客户端地址或Forwarded/X-Forwarded-For拒绝请求；未登录请求使用保留管理员空间1。经ngrok等入口访问LOCAL也会进入这个管理员空间。需要独立账号与用户隔离时使用PUBLIC；PUBLIC要求真实会话、明确HTTPS来源与Secure Cookie，生产配置固定PUBLIC，不通过反向代理IP授权。
 
 PUBLIC登录使用数据库会话，令牌仅通过HttpOnly、Secure、SameSite=Strict Cookie发送。写入同时校验来源和CSRF请求头。密码使用带随机盐的PBKDF2，数据库只保存会话令牌摘要；登录失败按账号限制，密码计算还有全局并发上限。会话固定过期，退出、管理员停用或重置密码会撤销旧会话。邀请注册默认关闭，开启时需要单独的邀请口令。
 

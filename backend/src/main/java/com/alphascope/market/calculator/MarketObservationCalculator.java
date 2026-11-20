@@ -212,7 +212,7 @@ public final class MarketObservationCalculator {
         }
         var f = factors.get(code);
         Double close = n(row, "close");
-        if (f == null || close == null || close <= 0) {
+        if (f == null || row.path("factorUnavailable").asBoolean() || close == null || close <= 0) {
           continue;
         }
         double adjusted = close * f.floorEntry(d).getValue();

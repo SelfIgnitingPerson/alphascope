@@ -2,9 +2,12 @@ package com.alphascope.backtest.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -35,6 +38,13 @@ public class ResearchValidationRequest {
   @Size(max = 10)
   @Builder.Default
   private List<@Pattern(regexp = "[0-9]{6}\\.(SH|SZ|BJ)") String> symbols = List.of();
+
+  /** 共用资金回放的模拟本金，未提供时保留原验证口径。 */
+  @com.fasterxml.jackson.annotation.JsonInclude(
+      com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+  @DecimalMin("1000")
+  @DecimalMax("10000000")
+  private BigDecimal portfolioCapital;
 
   /**
    * 研究范围，市场检验和技术回顾分别给出结论。

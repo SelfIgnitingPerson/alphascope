@@ -134,6 +134,7 @@ public final class ResearchValidationFixtures {
                 replay,
                 null)),
         List.of("隔离固定样本，不证明投资效果"),
-        List.of("TEST_FIXTURE仅供测试"));
+        List.of("TEST_FIXTURE仅供测试"),
+        null);
   }
 }

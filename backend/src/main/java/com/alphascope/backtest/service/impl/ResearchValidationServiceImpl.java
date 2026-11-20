@@ -1,9 +1,11 @@
 package com.alphascope.backtest.service.impl;
 
 import com.alphascope.backtest.calculator.MarketScoreValidationCalculator;
+import com.alphascope.backtest.calculator.PortfolioReplayCalculator;
 import com.alphascope.backtest.calculator.SignalEvaluationCalculator;
 import com.alphascope.backtest.calculator.StrategyReplayCalculator;
 import com.alphascope.backtest.calculator.TechnicalRuleReplayCalculator;
+import com.alphascope.backtest.dto.PortfolioReplaySettings;
 import com.alphascope.backtest.dto.SignalEvaluationInput;
 import com.alphascope.backtest.dto.TechnicalReplayInput;
 import com.alphascope.backtest.dto.ValidationCommand;
@@ -36,6 +38,9 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
   private final AlphaScopeProperties properties;
 
   private SourceLicenseService licenses;
+
+  @Autowired
+  private com.alphascope.fundamental.service.InvestmentEvidenceService investmentEvidence;
 
   @Autowired
   public void setLicenses(SourceLicenseService licenses) {
@@ -76,6 +81,7 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
       blockers.add("描述相关与时间留出不构成独立前瞻验证或显著性结论");
     }
     var stocks = new ArrayList<ResearchValidationView.StockValidation>();
+    var portfolioInputs = new ArrayList<TechnicalReplayInput>();
     int completed = 0;
     long evidenceBytes =
         marketReplay == null ? 0 : marketReplay.inputJson().getBytes(StandardCharsets.UTF_8).length;
@@ -92,8 +98,17 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
                 stock.calendar(),
                 stock.retrospective().minimumSamples());
         var specification =
-            new TechnicalReplayInput(source, command.definition(), stock.stockDates());
+            new TechnicalReplayInput(
+                source,
+                command.definition(),
+                stock.stockDates(),
+                investmentEvidence == null
+                    ? java.util.List.of()
+                    : investmentEvidence.actions(
+                        new com.alphascope.fundamental.dto.EvidenceQuery(
+                            stock.symbol(), request.getEnd())));
         var generated = TechnicalRuleReplayCalculator.reconstruct(specification);
+        if (request.getPortfolioCapital() != null) portfolioInputs.add(specification);
         var result = SignalEvaluationCalculator.evaluate(generated.evaluation());
         String input = Jsons.write(specification),
             indicators = Jsons.write(generated.indicators()),
@@ -135,6 +150,21 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
           new ExecutionProgress(
               ++completed, dataset.stocks().size(), "完成逐日验证 " + stock.symbol(), clock.instant()));
     }
+    ResearchValidationView.PortfolioReplay portfolioReplay = null;
+    if (request.getPortfolioCapital() != null) {
+      var settings =
+          new PortfolioReplaySettings(
+              request.getStart(),
+              request.getEnd(),
+              request.getPortfolioCapital().doubleValue(),
+              request.getSymbols());
+      var simulation = PortfolioReplayCalculator.evaluate(settings, portfolioInputs);
+      portfolioReplay =
+          new ResearchValidationView.PortfolioReplay(
+              settings,
+              simulation,
+              Jsons.hash(Jsons.write(settings) + "\n" + Jsons.write(simulation)));
+    }
     return new ResearchValidationView(
         clock.instant(),
         PROTOCOL,
@@ -156,6 +186,7 @@ public class ResearchValidationServiceImpl implements ResearchValidationService 
             "按固定日期70%/30%划分，当前规则可能受历史启发，不宣称未经接触的独立样本外验证",
             "逐规则逐窗口排除重叠，不同证券和规则仍相关，样本量不简单加总",
             "风险触发后上涨不表示提示有效；收益为收盘描述，不是策略胜率",
-            "未包含交易成本、涨跌停可成交性和组合回撤，小样本不能证明方法稳定有效"));
+            "单项技术信号统计采用收盘收益；执行模拟单独核算费用与组合回撤。"),
+        portfolioReplay);
   }
 }

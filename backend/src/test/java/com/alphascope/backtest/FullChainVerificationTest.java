@@ -115,6 +115,7 @@ class FullChainVerificationTest {
         report.ruleDefinition(),
         java.util.List.of(stock),
         report.blockers(),
-        report.limitations());
+        report.limitations(),
+        report.portfolioReplay());
   }
 }

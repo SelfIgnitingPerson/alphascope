@@ -11,7 +11,7 @@
 | 分页      | `page=1`、`size=20`，size 上限 100；`data` 为 `{items,total,page,size}` |
 | 分页端点  | `/instruments`、`/reports`、`/admin/jobs`                               |
 | 其他查询  | 各端点的 `data` 为数组或明确类型的专用对象                              |
-| 写操作    | LOCAL仅直接回环；PUBLIC会话、Origin及CSRF；普通写入按用户每秒一次       |
+| 写操作    | LOCAL允许代理转发，未登录使用保留管理员空间；PUBLIC会话、Origin及CSRF；普通写入按用户每秒一次 |
 | 错误      | 与成功相同的 `{code,message,data,requestId}`；失败 `data=null`          |
 | 模式      | 当前真实/演示模式过滤主要列表；历史报告按 ID 读取时仍保留其模式标识     |
 
@@ -27,7 +27,7 @@
 ```
 
 - 查询时 `data` 是端点声明的 VO 或分页对象；无业务返回值的成功写入为 `data=null`。
-- 失败时 `data=null`，`code` 为 `INVALID_ARGUMENT`、`NOT_FOUND`、`CONFLICT`、`LOCAL_ONLY`、`RATE_LIMITED` 或 `INTERNAL_ERROR` 等稳定枚举值，保留真实的 400/401/403/404/405/409/429/500 HTTP 状态。
+- 失败时 `data=null`，`code` 为 `INVALID_ARGUMENT`、`NOT_FOUND`、`CONFLICT`、`RATE_LIMITED` 或 `INTERNAL_ERROR` 等稳定枚举值，保留真实的 400/401/403/404/405/409/429/500 HTTP 状态。
 - 任务提交使用 HTTP 202 和 `Result<JobView>`；202 只表示成功接收，不表示研究已经完成。
 - 每个响应的 `requestId` 与 `X-Request-Id` 相同。前端 `api<T>` 统一校验外壳、处理业务失败并返回 `data`；页面不自行重复解包。
 - 下方表格的响应说明均指 `data`。分页例如 `result.data.items`，任务编号例如 `result.data.id`。
@@ -63,9 +63,9 @@
 | GET    | `/watchlist`                    | 无，返回数组                          |
 | POST   | `/watchlist`                    | symbol、priority                      |
 | DELETE | `/watchlist/{symbol}`           | 路径参数 symbol                       |
-| GET    | `/portfolio/positions`          | 返回 items、account、currency         |
-| PUT    | `/portfolio/positions/{symbol}` | quantity、costPrice、asOfDate         |
-| PUT    | `/portfolio/account`            | totalAssets、asOfDate；未知资产可为空 |
+| GET    | `/portfolio/positions`          | 返回 items、account、currency。传 `asOf` 按业务日与实际登记时间读取历史 |
+| PUT    | `/portfolio/positions/{symbol}` | quantity、costPrice、asOfDate，可选 riskGroup。历史补登保留实际登记时间 |
+| PUT    | `/portfolio/account`            | totalAssets、asOfDate，可选 cash、positionsComplete、riskBudget、liquidityReserve、fundsNeededOn、fundsPurpose |
 
 ## 报告查询与版本
 
@@ -185,7 +185,7 @@ GET /api/v1/instruments/300476.SZ/indicators?start=2026-10-01&end=2026-10-30
 
 | 方法 | 路径                                                | 用途                                                      |
 | ---- | --------------------------------------------------- | --------------------------------------------------------- |
-| POST | /api/v1/admin/backtest-validation-tasks             | 请求体start、end、scope及可选symbols；HTTP202返回持久任务 |
+| POST | /api/v1/admin/backtest-validation-tasks             | 请求体 `start`、`end`、`scope`、可选 `symbols` 和 `portfolioCapital`。共用本金适用于含自选的验证，范围为 1,000 至 10,000,000 元。HTTP 202 返回持久任务 |
 | GET  | /api/v1/backtest/validation-tasks                   | 轻量元数据分页page/size                                   |
 | GET  | /api/v1/backtest/validation-tasks/{id}              | 实际进度和已完成摘要，不含原始大证据                      |
 | POST | /api/v1/admin/backtest-validation-tasks/{id}/cancel | 持久取消意图，已完成状态保持不变                          |
@@ -256,9 +256,9 @@ PUBLIC全部业务接口需要会话，auth/status、login和register为入口�
 
 | 方法 | 路径（/api/v1） | 行为 |
 | --- | --- | --- |
-| GET | /plans | 个人最近100份冻结计划，仅读取 |
+| GET | /plans | page/size及asOf/symbol/horizon/archived筛选，复核取不晚于asOf的最近业务日 |
 | POST | /plans | symbol、date、horizon、actionCode；服务端捕获实际研究及原始因子，不接受价位或租户字段 |
-| GET | /plans/{id}/reviews | 所属用户最近20次已保存复核，不重算 |
+| GET | /plans/{id}/reviews | 所属用户已保存复核分页，按业务日、修订主键倒序，不重算 |
 | POST | /plans/{id}/reviews | date；显式追加，不覆盖原风险线 |
 | POST | /plans/{id}/archive | 停止跟踪并保留证据 |
 | GET | /admin/themes/{code}/leaders | 管理员读取当前目录、修订主键与90天复核提醒 |
@@ -274,3 +274,35 @@ PUBLIC全部业务接口需要会话，auth/status、login和register为入口�
 研究计划列表 `GET /plans` 使用page/size及symbol/horizon/archived筛选，只返回摘要；`GET /plans/{id}`读取完整冻结内容，`GET /plans/{id}/reviews?page=1&size=20`分页读取复核。
 
 管理员 `PUT /admin/instruments/{symbol}/lifecycle` 使用listedAt、可空delistedAt、evidenceUrl和reference补录有公开依据的日期；这不会改写历史报告。`GET /admin/operations/storage`区分私人正文预算、平台正文预算、数据库物理分配和应用文件系统。`POST /admin/jobs/market-full?date=YYYY-MM-DD`显式核验三所同日证据，`GET /market/full-observation?date=YYYY-MM-DD`只读已归档结果；接口存在不代表真实历史完整。
+
+
+个人计划相同证券、周期、行动与证据指纹重复保存时返回已有记录；同计划相同复核指纹不重复追加。新依据生成独立证据，原始价位不覆盖。`asOf`不晚于上海当前日；补写更早日期不会替代较晚业务日的复核。已阅读标记精确绑定复核指纹，后续新证据重新进入待办。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | /plans/todos?asOf=YYYY-MM-DD | 当前用户全部跟踪计划的风险、变化、缺项和待复核数量；前五个优先事项 |
+| POST | /plans/review-due | body.date；HTTP每批最多100份，逐项独立事务，失败返回剩余数量；后台收盘任务逐项覆盖全部跟踪计划 |
+| POST | /plans/{id}/acknowledge | body.date；确认所选日之前最近复核已阅读，不删除风险事实 |
+| GET | /market/readiness?date=YYYY-MM-DD | 三所同日完整归档数量、近60日缺失日期、同源因子能力和下一步；不触发网络 |
+| GET | /stocks/{symbol}/valuation-thesis?asOf=YYYY-MM-DD | 当前用户有效期与日期明确的估值假设；为空时不输出长期合理价 |
+| POST | /valuation-theses | symbol/asOf/validUntil、epsLow/epsHigh、peLow/peHigh、safetyMargin、businessConfirmed、rationale、invalidation、sourceUrl、financialSource；保存个人不可变情景 |
+| GET | /stocks/{symbol}/corporate-actions?asOf=YYYY-MM-DD | 共享公开公司行动的最新登记版本 |
+| POST | /admin/corporate-actions | 管理员登记公告行动；exDate/paymentDate/shareListingDate、priceSource、factorBefore/factorAfter、shareMultiplier、cashPerShare、exReferencePrice、sourceUrl |
+
+长期情景按“年化归母EPS×PE”计算价值区间，并扣除用户选择的安全边际；不是官方估值或投资有效性认证。反向区间、超过一年复核期限、缺来源或未来研究日期拒绝保存。过期、来源变化或其他条件不满足不形成候选。
+
+策略执行 V2、V3 使用验证输入中冻结的公司行动。前后因子须匹配行情，现金分红按模拟预扣税率 20% 计提，到账前记入应收。送转须确认新增股份在除权日可交易，零股、配股等缺项继续显示。V3 的区间结果新增 `tradeStatistics`，包含完全平仓数、盈利数、亏损数、持平数和胜率。追加行动后提交新验证，历史任务按原版本复算。
+
+收盘任务新增三所同日归档及个人计划跟踪阶段。三所原文优先复用已保存同日截面；免费来源不支持未归档历史时，列出实际缺日，不拿当前清单倒填。全局自选事项先核对全部启用自选、按风险排序，再分页。
+
+估值情景必须声明EPS依据的实际financialSource；公开模式仍核验该来源DISPLAY许可。公司行动同样携带价格供应商inputSources，不采用客户端另填的来源集合。待办汇总携带所有参与复核的实际来源；零项计数省略时客户端显示0，来源许可门禁不关闭。
+
+`GET /api/v1/instruments/{symbol}/business-evidence?asOf=YYYY-MM-DD` 读取截止日前可用的财报，核对同期间利润与现金流、应收、存货、经营性应付和资本开支，列出财报字段与缺项。管理员可用 `POST /api/v1/admin/financials/sync` 提交 `symbol` 和 `date`，显式同步三张财务报表。
+
+`GET /api/v1/instruments/{symbol}/valuation-audit?asOf=YYYY-MM-DD` 读取已保存的财报和行情，交叉核对股本、滚动盈利与有效同行。资料缺失时给出逐项原因。观察上限同时受公开盈利、同行估值与私人假设约束。实际来源受许可策略约束。
+
+`GET /api/v1/research-focus?asOf=YYYY-MM-DD&page=1&size=10` 合并启用自选、正持仓及原计划风险，按风险和持仓影响排序后分页。`positionImpact` 触及原风险参考时返回触及状态，风险差额留空。`portfolioImpact` 汇总已核对市值、集中度、现金余量及压力情景。对照使用上期实际留档，缺档时明确显示当前规则复算。`POST /api/v1/research-focus/capture` 按所选日留档，记录实际形成时间。
+
+`GET /api/v1/research-focus/forward?asOf=YYYY-MM-DD` 汇总实际留档后的前瞻样本。`POST /api/v1/research-focus/forward/evaluate` 按截止日核对5、10、20个交易日的结果，包含费用、未成交、资料缺失及基准。`GET /api/v1/research-focus/forward/{id}` 读取可复算明细，受数据导出许可约束。
+
+`POST /api/v1/admin/market/repair-stored` 接收 `asOf` 和最多10个 `dates`，依据同日已存价格原文和北交所目录核验可恢复的全A截面，逐日返回缺项。

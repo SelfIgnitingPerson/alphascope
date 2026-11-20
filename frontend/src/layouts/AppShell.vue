@@ -11,9 +11,7 @@ const visibleNavigation = computed(() =>
     .map((group) => ({
       ...group,
       items: group.items.filter(
-        (item) =>
-          (item.path !== '/portfolio' || access.value?.positionRiskEnabled) &&
-          (!['/operations', '/product'].includes(item.path) || user.value?.role === 'ADMIN'),
+        (item) => !['/operations', '/product'].includes(item.path) || user.value?.role === 'ADMIN',
       ),
     }))
     .filter((group) => group.items.length),

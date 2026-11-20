@@ -1,13 +1,13 @@
 package com.alphascope.portfolio.service;
 
+import com.alphascope.portfolio.dto.AccountInput;
 import com.alphascope.portfolio.dto.PositionDO;
 import com.alphascope.portfolio.dto.PositionInput;
 import com.alphascope.portfolio.dto.WatchlistDO;
 import com.alphascope.portfolio.entity.PortfolioAccount;
+import com.alphascope.portfolio.vo.PortfolioContext;
 import com.alphascope.portfolio.vo.PositionsView;
 import com.alphascope.portfolio.vo.WatchlistView;
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -37,6 +37,14 @@ public interface PortfolioService {
    * @return 持仓列表与账户可用状态；未知总额保持缺失
    */
   PositionsView positionsView();
+
+  /**
+   * 读取研究时点已实际登记的账户及持仓。
+   *
+   * @param date 研究截止日
+   * @return 有原始登记日期的组合
+   */
+  PositionsView positionsView(java.time.LocalDate date);
 
   /**
    * 读取内部研究编排使用的自选证券及启用状态。
@@ -75,6 +83,14 @@ public interface PortfolioService {
   PortfolioAccount account();
 
   /**
+   * 恢复研究时点已实际登记的组合，拒绝后补记录倒填。
+   *
+   * @param date 截止日
+   * @return 历史组合上下文
+   */
+  PortfolioContext context(java.time.LocalDate date);
+
+  /**
    * 校验数量、成本及业务日期后保存人工持仓，不向券商下单。
    *
    * @param symbol 统一证券代码，例如 300476.SZ 或 000300.SH
@@ -86,9 +102,8 @@ public interface PortfolioService {
   /**
    * 校验后保存人工登记的本机账户资产总额及对应日期。
    *
-   * @param assets 人民币资产总额；null 表示未知，非空值必须大于 0
-   * @param date 人工账户总额对应的业务日期
+   * @param input 资产、日期与可选个人用款前提；未知字段留空
    * @throws IllegalArgumentException 非空资产总额小于或等于 0
    */
-  void account(BigDecimal assets, LocalDate date);
+  void account(AccountInput input);
 }

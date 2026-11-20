@@ -84,4 +84,7 @@ public class FinancialReport {
 
   /** 供应商原始响应JSON，用于核验来源及保留当次证据 */
   private String rawJson;
+
+  /** 新采集的逐字原始响应，旧材料缺省，不倒填。 */
+  private String rawPayload;
 }

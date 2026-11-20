@@ -24,8 +24,6 @@ public enum ResultCode {
   CONFLICT,
   /** 接口不支持该 HTTP 方法。 */
   METHOD_NOT_ALLOWED,
-  /** 非本机回环连接尝试调用写接口。 */
-  LOCAL_ONLY,
   /** 同一客户端写入过于频繁。 */
   RATE_LIMITED,
   /** 未公开内部细节的服务异常，使用 requestId 核查日志。 */

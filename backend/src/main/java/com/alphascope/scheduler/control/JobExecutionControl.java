@@ -112,6 +112,13 @@ public class JobExecutionControl {
                     ? business.getMessage()
                     : "阶段失败，错误类型：" + e.getClass().getSimpleName()
                 : new TaskStoppedException(stopped).getMessage();
+        if (stopped == null && state.diagnostic.code().startsWith("DATABASE_"))
+          message =
+              state.diagnostic.title()
+                  + "："
+                  + state.diagnostic.reason()
+                  + "。"
+                  + state.diagnostic.action();
         StageQuality quality =
             new StageQuality(
                 DataQualityStatus.UNAVAILABLE,

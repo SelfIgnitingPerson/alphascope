@@ -101,6 +101,18 @@ public class FinancialSyncServiceImpl implements FinancialSyncService {
                           "EASTMONEY_FREE",
                           "reportsFetched",
                           rows.size(),
+                          "balancePeriodsFetched",
+                          rows.stream()
+                              .filter(
+                                  r ->
+                                      Jsons.read(
+                                              r.rawJson(),
+                                              com.fasterxml.jackson.databind.JsonNode.class)
+                                          .path("balance")
+                                          .isObject())
+                              .count(),
+                          "balancePolicy",
+                          "资产负债表缺失独立保留未知，不以利润表可用代替三表齐全",
                           "publicationPrecision",
                           "DAY",
                           "availabilityPolicy",

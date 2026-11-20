@@ -49,7 +49,7 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
   @Override
   @Transactional
   public PlanView create(PlanCreateInput input) {
-    requireRoom();
+    mapper.lockUser(TenantContext.id());
     if (market.synthetic()) throw new IllegalArgumentException("演示资料不能保存真实研究计划");
     var view = research.read(input.symbol(), query(input.date()));
     var horizon =
@@ -82,8 +82,15 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
                         && b.getFactor().signum() > 0)
             .findFirst()
             .orElseThrow(() -> new IllegalArgumentException("缺少保存时同源因子，不能冻结风险价位尺度"));
-    row.setSnapshotJson(Jsons.write(new PlanEvidence(view, anchor.getFactor())));
+    row.setSnapshotJson(
+        Jsons.write(
+            new PlanEvidence(
+                view.toBuilder().inputSources(orderedSources(view.inputSources())).build(),
+                anchor.getFactor())));
     row.setSnapshotHash(Jsons.hash(row.getSnapshotJson()));
+    var existing = mapper.identicalPlan(row);
+    if (existing != null) return from(existing);
+    requireRoom();
     mapper.insert(row);
     return from(required(row.getId()));
   }
@@ -91,19 +98,31 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
   /** {@inheritDoc} */
   @Override
   public PageResponse<PlanSummary> page(PlanQuery query) {
+    return page(query, null);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public PageResponse<PlanSummary> pageWithOriginalRisk(PlanQuery query) {
+    return page(query, "ORIGINAL_STOP_BREACHED");
+  }
+
+  private PageResponse<PlanSummary> page(PlanQuery query, String reviewStatus) {
     query.validate();
     var rows = mapper.page(query);
     var latest = new java.util.HashMap<Long, PlanReviewView>();
+    var hashes = new java.util.HashMap<Long, String>();
     if (!rows.isEmpty()) {
       for (var review :
           mapper.latestReviews(
               new com.alphascope.planning.dto.PlanReviewBatchQuery(
-                  rows.stream().map(PlanSummary::id).toList()))) {
+                  rows.stream().map(PlanSummary::id).toList(), query.getAsOf(), reviewStatus))) {
         if (!Jsons.hash(review.getReviewJson()).equals(review.getReviewHash()))
           throw new IllegalStateException("计划复核指纹不匹配");
         var view = Jsons.read(review.getReviewJson(), PlanReviewView.class);
         if (view.planId() != review.getPlanId()) throw new IllegalStateException("计划复核归属不匹配");
         latest.put(review.getPlanId(), view);
+        hashes.put(review.getPlanId(), review.getReviewHash());
       }
     }
     var items =
@@ -122,7 +141,16 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
                       row.asOf(),
                       review == null ? null : review.date(),
                       review == null ? null : review.status(),
-                      review == null ? null : review.explanation());
+                      review == null ? null : review.explanation(),
+                      review != null
+                          && Objects.equals(hashes.get(row.id()), row.acknowledgedReviewHash()),
+                      row.acknowledgedReviewHash(),
+                      row.source(),
+                      review != null && review.inputSources() != null
+                          ? review.inputSources()
+                          : row.source() != null && row.source().matches("[A-Z_]{2,40}")
+                              ? java.util.Set.of(row.source())
+                              : java.util.Set.of());
                 })
             .toList();
     return new PageResponse<>(items, mapper.count(query), query.getPage(), query.getSize());
@@ -136,7 +164,9 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
 
   /** {@inheritDoc} */
   @Override
+  @Transactional
   public void archive(long id) {
+    mapper.lockUser(TenantContext.id());
     required(id);
     mapper.archive(id);
   }
@@ -164,7 +194,7 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
   @Override
   @Transactional
   public PlanReviewView review(long id, PlanReviewInput input) {
-    requireRoom();
+    mapper.lockUser(TenantContext.id());
     var row = required(id);
     var original = from(row).research();
     if (Boolean.TRUE.equals(row.getArchived())) throw new IllegalArgumentException("归档计划不再追加跟踪");
@@ -190,9 +220,7 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
     if (current.close() == null || !input.date().equals(current.quoteDate())) {
       status = "DATA_INSUFFICIENT";
       explanation = "复核日缺少有效收盘行情，未判断原风险线是否失守。";
-    } else if (!Objects.equals(original.version(), current.version())) {
-      status = "METHOD_CHANGED";
-      explanation = "研究方法已变更，保留原计划，不能用新方法自动确认原条件。";
+
     } else if (!Objects.equals(original.source(), current.source())) {
       status = "SOURCE_CHANGED";
       explanation = "来源发生变化，价格尺度不能直接比较，请人工核对。";
@@ -243,6 +271,9 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
                       ? touched.get() + "盘中最低价已触及原风险线，即使随后收盘收复也保留该风险事实。"
                       : "当前收盘已到达或跌破原风险线。")
                   + "已核对同源因子尺度，优先复核原计划，不向下重设止损。";
+        } else if (!Objects.equals(original.version(), current.version())) {
+          status = "METHOD_CHANGED";
+          explanation = "研究方法已变更；原风险价位仍保留，但不能用新方法自动确认原买卖条件。";
         } else {
           status =
               action.isPresent()
@@ -270,13 +301,16 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
             current.close(),
             action.map(HoldingResearchView.Action::status).orElse(null),
             List.of("复核使用当前已保存版本，可能包含后来修订；不是当时可得性证明。", "价格条件不替代原始经营假设与个人仓位核对。"),
-            com.alphascope.operations.policy.SourceEvidence.inspect(
-                    java.util.List.of(original, current))
-                .sources());
+            orderedSources(
+                com.alphascope.operations.policy.SourceEvidence.inspect(
+                        java.util.List.of(original, current))
+                    .sources()));
     var review = new PlanReview();
     review.setPlanId(id);
     review.setReviewJson(Jsons.write(result));
     review.setReviewHash(Jsons.hash(review.getReviewJson()));
+    if (mapper.identicalReview(review) != null) return result;
+    requireRoom();
     mapper.review(review);
     return result;
   }
@@ -296,6 +330,30 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
                         v ->
                             Objects.equals(c.label(), v.label())
                                 && Objects.equals(c.met(), v.met())));
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  @Transactional
+  public void acknowledge(long id, PlanReviewInput input) {
+    mapper.lockUser(TenantContext.id());
+    var row = required(id);
+    var found =
+        mapper.latestReviews(
+            new com.alphascope.planning.dto.PlanReviewBatchQuery(List.of(id), input.date()));
+    if (found.isEmpty()) throw new IllegalArgumentException("所选日期前尚无复核，请先复核后再确认阅读");
+    var review = found.getFirst();
+    if (!Jsons.hash(review.getReviewJson()).equals(review.getReviewHash()))
+      throw new IllegalStateException("复核证据指纹不匹配");
+    row.setAcknowledgedReviewHash(review.getReviewHash());
+    mapper.acknowledge(row);
+  }
+
+  /** 来源是集合语义，冻结前稳定排序，服务重启后相同依据仍命中同一指纹。 */
+  private static java.util.Set<String> orderedSources(java.util.Set<String> sources) {
+    return sources == null
+        ? null
+        : java.util.Collections.unmodifiableSortedSet(new java.util.TreeSet<>(sources));
   }
 
   private HoldingResearchQuery query(java.time.LocalDate date) {
@@ -324,7 +382,6 @@ public class ResearchPlanServiceImpl implements ResearchPlanService {
   }
 
   private void requireRoom() {
-    mapper.lockUser(TenantContext.id());
     if (mapper.evidenceCount() >= 1000)
       throw new IllegalArgumentException("个人计划及复核总数已达1000条保护上限，请联系管理员核对存储预算，原证据不会自动删除");
   }

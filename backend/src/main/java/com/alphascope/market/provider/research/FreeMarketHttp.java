@@ -76,6 +76,21 @@ public final class FreeMarketHttp implements AutoCloseable {
    * @return 有界JSON正文
    */
   public JsonNode get(URI uri) {
+    try {
+      return json.readTree(body(uri));
+    } catch (java.io.IOException error) {
+      throw new IllegalStateException("PUBLIC_MARKET_RESPONSE_INVALID", error);
+    }
+  }
+
+  /** 读取新浪文本行情，沿用同一串行限速、域名限制与访问保护。 */
+  String sinaQuotes(URI uri) {
+    if (!"hq.sinajs.cn".equals(uri.getHost()))
+      throw new IllegalArgumentException("PUBLIC_MARKET_HOST_NOT_ALLOWED");
+    return new String(body(uri), java.nio.charset.Charset.forName("GB18030"));
+  }
+
+  private byte[] body(URI uri) {
     // 目录补齐与收盘截面共享进程内串行锁，不能因增加入口而放大免费节点并发。
     synchronized (REQUEST_LOCK) {
       if (!"https".equals(uri.getScheme())
@@ -83,7 +98,8 @@ public final class FreeMarketHttp implements AutoCloseable {
                   "push2.eastmoney.com",
                   "datacenter-web.eastmoney.com",
                   "datacenter.eastmoney.com",
-                  "vip.stock.finance.sina.com.cn")
+                  "vip.stock.finance.sina.com.cn",
+                  "hq.sinajs.cn")
               .contains(uri.getHost()))
         throw new IllegalArgumentException("PUBLIC_MARKET_HOST_NOT_ALLOWED");
       String supplier = uri.getHost().contains("sina") ? "sina" : "eastmoney";
@@ -129,9 +145,11 @@ public final class FreeMarketHttp implements AutoCloseable {
                   + " retryAt="
                   + blockedUntil(supplier));
         }
+        if (Set.of(500, 502, 503, 504).contains(response.statusCode()))
+          throw new IllegalStateException("PUBLIC_MARKET_HTTP_RETRYABLE");
         if (response.statusCode() != 200)
           throw new IllegalStateException("PUBLIC_MARKET_HTTP_ERROR");
-        return json.readTree(response.body());
+        return response.body();
       } catch (InterruptedException error) {
         Thread.currentThread().interrupt();
         throw new IllegalStateException("PUBLIC_MARKET_INTERRUPTED", error);

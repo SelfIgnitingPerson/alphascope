@@ -20,7 +20,7 @@ import java.util.List;
  * @author chenxuefeng
  */
 public final class HoldingResearchCalculator {
-  public static final String VERSION = "HOLDING_RESEARCH_V2";
+  public static final String VERSION = "HOLDING_RESEARCH_V6";
 
   private HoldingResearchCalculator() {}
 
@@ -58,10 +58,12 @@ public final class HoldingResearchCalculator {
             .source(study.source())
             .close(study.close())
             .priceVolume(study)
+            .valuationAudit(input.valuationAudit())
+            .mediumTrendCandidate(MediumTermResearchCalculator.trendCandidate(input, study))
             .horizons(
                 List.of(
                     shortTerm(study),
-                    MediumTermResearchCalculator.calculate(input, study),
+                    mediumObservation(MediumTermResearchCalculator.calculate(input, study)),
                     LongTermResearchCalculator.calculate(input, study)))
             .notes(
                 List.of(
@@ -70,6 +72,26 @@ public final class HoldingResearchCalculator {
                     "长期估值与竞争优势尚需人工核实，不把技术观察带标成长期合理价值。方法尚未完成历史效果验证。"))
             .build();
     return view.toBuilder().priorities(ResearchPriorityCalculator.observations(view)).build();
+  }
+
+  private static Horizon mediumObservation(Horizon horizon) {
+    if ("UNAVAILABLE".equals(horizon.status())) return horizon;
+    return horizon.toBuilder()
+        .status("CONDITIONAL_MATCH".equals(horizon.status()) ? "WAIT" : horizon.status())
+        .conclusion(horizon.conclusion() + " 中期规则用于观察，待独立样本验证。")
+        .actions(
+            horizon.actions().stream()
+                .map(
+                    action ->
+                        "CONDITIONAL_MATCH".equals(action.status())
+                                && "ALL".equals(action.conditionLogic())
+                            ? action.toBuilder()
+                                .status("WAIT")
+                                .conclusion("行情条件命中，作为研究候选记录。")
+                                .build()
+                            : action)
+                .toList())
+        .build();
   }
 
   private static Horizon shortTerm(PriceVolumeStudy study) {

@@ -23,6 +23,22 @@ public interface ResearchPlanMapper {
   void insert(ResearchPlan row);
 
   /**
+   * 查找同一行动及证据的已存计划，归档记录同样保留幂等性。
+   *
+   * @param row 当前身份捕获的证据
+   * @return 相同记录或null
+   */
+  ResearchPlan identicalPlan(ResearchPlan row);
+
+  /**
+   * 查找同一计划已保存的相同复核，网络重试不重复占用配额。
+   *
+   * @param row 当前复核证据
+   * @return 相同记录或null
+   */
+  PlanReview identicalReview(PlanReview row);
+
+  /**
    * 按所属用户筛选分页读取摘要。
    *
    * @param query 校验后的筛选与分页
@@ -53,6 +69,14 @@ public interface ResearchPlanMapper {
    * @return 影响行数
    */
   int archive(long id);
+
+  /**
+   * 仅更新待办阅读标记，不修改任何原始研究或复核证据。
+   *
+   * @param row 已校验归属的计划及复核指纹
+   * @return 影响行数
+   */
+  int acknowledge(ResearchPlan row);
 
   /**
    * 追加不可变复核记录并回填主键。

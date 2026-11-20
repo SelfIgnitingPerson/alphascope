@@ -66,7 +66,10 @@ const labels: Record<string, string> = {
 };
 </script>
 <template>
-  <FullMarketPanel :refresh-token="refreshToken" />
+  <FullMarketPanel
+    :date="date"
+    :refresh-token="refreshToken"
+  />
   <StorageBudgetPanel :refresh-token="refreshToken" />
   <LifecyclePanel />
   <BseUniversePanel

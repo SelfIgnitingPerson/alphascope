@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ForwardValidationPanel from '../components/research/ForwardValidationPanel.vue';
 import SectionTabs from '../components/common/SectionTabs.vue';
 import TermHelp from '../components/common/TermHelp.vue';
 import { ruleTermIds } from '../content/research-terms';
@@ -32,6 +33,11 @@ const tabs = [
     id: 'experiments',
     label: '复算归档',
     description: '保存当前查询的验证实验，或核对已冻结的历史输入。',
+  },
+  {
+    id: 'forward',
+    label: '真实前瞻跟踪',
+    description: '只统计实际当日形成的冻结判断，扣费、未成交和样本边界分别核验。',
   },
   { id: 'method', label: '方法说明', description: '了解统计口径、样本排除与结果的适用边界。' },
 ];
@@ -442,6 +448,12 @@ function selectWatchSymbol(value: string) {
           </p>
         </AsyncState>
       </SectionCard>
+    </template>
+    <template #forward>
+      <ForwardValidationPanel
+        :date="date"
+        :refresh-token="refreshToken"
+      />
     </template>
     <template #validation>
       <ResearchValidationPanel

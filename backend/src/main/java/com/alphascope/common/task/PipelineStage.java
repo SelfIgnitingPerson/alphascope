@@ -17,6 +17,7 @@ public enum PipelineStage {
   MARKET_OBSERVATION,
   INDICATORS,
   SCORE_RULES,
+  PLAN_REVIEW,
   REPORT,
   NOTIFICATION;
 

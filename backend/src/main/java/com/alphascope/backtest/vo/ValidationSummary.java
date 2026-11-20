@@ -41,7 +41,11 @@ public record ValidationSummary(
     /** 方法局限。 */
     List<String> limitations,
     /** 价格、指标、规则、统计四层复算核对结果。 */
-    ValidationVerification verification) {
+    ValidationVerification verification,
+    /** 共用资金执行摘要，无该口径的历史任务留空。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        StrategySimulation portfolio) {
 
   /**
    * 单只自选的统计摘要。
@@ -109,6 +113,7 @@ public record ValidationSummary(
             .toList(),
         report.blockers(),
         report.limitations(),
-        verification);
+        verification,
+        report.portfolioReplay() == null ? null : report.portfolioReplay().simulation());
   }
 }

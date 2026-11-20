@@ -37,6 +37,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -127,7 +128,7 @@ public class MarketObservationServiceImpl implements MarketObservationService {
   /** {@inheritDoc} */
   @Override
   public void sync(LocalDate date) {
-    rebuild(date, true);
+    rebuild(date, true, true);
   }
 
   /** {@inheritDoc} */
@@ -138,10 +139,20 @@ public class MarketObservationServiceImpl implements MarketObservationService {
         && existing.analysis() != null
         && date.equals(existing.analysis().businessDate())
         && "AVAILABLE".equals(existing.analysis().status())) return;
-    rebuild(date, false);
+    rebuild(date, false, false);
   }
 
-  private void rebuild(LocalDate date, boolean collectMissing) {
+  /** {@inheritDoc} */
+  @Override
+  public void refreshAfterClose(LocalDate date) {
+    var existing = view(date);
+    if (existing.analysis() != null
+        && date.equals(existing.analysis().businessDate())
+        && "AVAILABLE".equals(existing.analysis().status())) return;
+    rebuild(date, false, true);
+  }
+
+  private void rebuild(LocalDate date, boolean collectMissing, boolean extendFactors) {
     if (market.synthetic()) {
       return;
     }
@@ -161,12 +172,25 @@ public class MarketObservationServiceImpl implements MarketObservationService {
       }
       var dates = new ArrayList<>(open.subList(Math.max(0, open.size() - 82), open.size()));
       progress(date, "RUNNING", 0, 0, 0);
+      String historySource =
+          collectMissing
+              ? router.sources().stream()
+                  .filter(router::historicalSnapshots)
+                  .filter(s -> router.supports(s, MarketCapability.ADJUSTMENT_FACTORS))
+                  .findFirst()
+                  .orElse(null)
+              : null;
+      if (historySource != null) breadth.syncHistory(dates, historySource);
+      else if (collectMissing) breadth.sync(date);
       var currentBreadth = breadth.snapshot(date);
-      String source = currentBreadth == null ? null : currentBreadth.getSource();
+      String source =
+          historySource != null
+              ? historySource
+              : currentBreadth == null ? null : currentBreadth.getSource();
       if (source == null || !router.sources().contains(source)) {
         throw new IllegalStateException("当前截面没有已配置的实际来源");
       }
-      if (collectMissing) breadth.syncHistory(dates, source);
+      if (collectMissing && historySource == null) breadth.syncHistory(dates, source);
       Map<LocalDate, JsonNode> inputs = new TreeMap<>();
       List<MarketSnapshotReference> refs = new ArrayList<>();
       for (var d : dates) {
@@ -203,15 +227,13 @@ public class MarketObservationServiceImpl implements MarketObservationService {
       }
       var codes = new ArrayList<>(symbols);
       progress(date, "RUNNING", 0, codes.size(), 0);
-      FactorLoad factors =
-          collectFactors(
-              ResearchFactorRequest.builder()
-                  .start(dates.getFirst())
-                  .end(date)
-                  .source(source)
-                  .build(),
-              codes,
-              collectMissing);
+      var window =
+          ResearchFactorRequest.builder().start(dates.getFirst()).end(date).source(source).build();
+      var extension =
+          extendFactors && "BAOSTOCK".equals(source)
+              ? loadBaoStockExtension(window, dates, symbols)
+              : BaoStockExtension.empty();
+      FactorLoad factors = collectFactors(window, codes, collectMissing, extension);
       refs.addAll(factors.references());
       var analysis =
           MarketObservationCalculator.calculate(
@@ -264,6 +286,8 @@ public class MarketObservationServiceImpl implements MarketObservationService {
                   dates,
                   "parameters",
                   parameters.values(),
+                  "baoStockDailyFactorEvidence",
+                  extension.days(),
                   "benchmark",
                   market.bars(
                       "000300.SH",
@@ -325,7 +349,10 @@ public class MarketObservationServiceImpl implements MarketObservationService {
    * @throws InterruptedException 线程被取消；交由入口恢复中断标记并停止本次采集
    */
   private FactorLoad collectFactors(
-      ResearchFactorRequest window, List<String> codes, boolean collectMissing)
+      ResearchFactorRequest window,
+      List<String> codes,
+      boolean collectMissing,
+      BaoStockExtension extension)
       throws InterruptedException {
     // 未声明因子能力时不对数千只股票逐项查询或发送必然失败的请求。
     if (!router.supports(window.source(), MarketCapability.ADJUSTMENT_FACTORS))
@@ -347,7 +374,8 @@ public class MarketObservationServiceImpl implements MarketObservationService {
               .source(window.source())
               .build();
       try {
-        var cached = mapper.factor(request);
+        var base = extension.baselines().get(code);
+        var cached = base == null ? mapper.factor(request) : base;
         if (cached == null && !collectMissing) {
           failures++;
           completed++;
@@ -391,9 +419,12 @@ public class MarketObservationServiceImpl implements MarketObservationService {
         if (cached == null) {
           throw new IllegalStateException("因子缓存写入失败");
         }
-        values.put(
-            code,
-            MarketObservationCalculator.factors(factorEvents(cached.getRawJson()), window.end()));
+        var series =
+            MarketObservationCalculator.factors(factorEvents(cached.getRawJson()), window.end());
+        var changes = extension.changes().get(code);
+        if (base != null && changes != null)
+          changes.tailMap(base.getVerifiedThrough(), false).forEach(series::put);
+        values.put(code, series);
         references.add(
             MarketSnapshotReference.builder()
                 .type("market_factor_snapshot")
@@ -416,6 +447,69 @@ public class MarketObservationServiceImpl implements MarketObservationService {
     }
     references.sort(Comparator.comparing(MarketSnapshotReference::symbol));
     return new FactorLoad(values, references, failures);
+  }
+
+  private BaoStockExtension loadBaoStockExtension(
+      ResearchFactorRequest window, List<LocalDate> dates, java.util.Set<String> symbols) {
+    var baselines = new TreeMap<String, MarketFactorSnapshot>();
+    var earliestWindow =
+        ResearchFactorRequest.builder()
+            .source(window.source())
+            .start(window.start())
+            .end(window.start())
+            .build();
+    for (var row : mapper.factorsForWindow(earliestWindow)) {
+      if (symbols.contains(row.getSymbol())) baselines.putIfAbsent(row.getSymbol(), row);
+    }
+    if (baselines.isEmpty()) return BaoStockExtension.empty();
+    var earliest =
+        baselines.values().stream()
+            .map(MarketFactorSnapshot::getVerifiedThrough)
+            .min(LocalDate::compareTo)
+            .orElseThrow();
+    var days = new LinkedHashMap<LocalDate, List<Map<String, String>>>();
+    var changes = new TreeMap<String, NavigableMap<LocalDate, Double>>();
+    try {
+      for (var day : dates) {
+        if (!day.isAfter(earliest)) continue;
+        ExecutionContext.checkpoint();
+        var rows = router.baoStockFactorEvents(day);
+        for (var row : rows) {
+          String code = row.get("code");
+          if (code == null
+              || !code.matches("(?:sh|sz|bj)\\.\\d{6}")
+              || !day.toString().equals(row.get("dividOperateDate")))
+            throw new IllegalStateException("BaoStock批量除权事件日期或代码不一致");
+          double value = Double.parseDouble(row.get("backAdjustFactor"));
+          if (!Double.isFinite(value)
+              || value <= 0
+              || changes.computeIfAbsent(code, k -> new TreeMap<>()).putIfAbsent(day, value)
+                  != null) throw new IllegalStateException("BaoStock批量除权事件的因子无效或重复");
+        }
+        days.put(day, rows);
+      }
+      return new BaoStockExtension(baselines, days, changes);
+    } catch (TaskStoppedException stopped) {
+      throw stopped;
+    } catch (RuntimeException failure) {
+      org.slf4j.LoggerFactory.getLogger(getClass())
+          .warn("BaoStock批量除权事件无法覆盖窗口，使用已核验单股因子或独立补齐", failure);
+      return BaoStockExtension.empty();
+    }
+  }
+
+  /**
+   * 已核验因子基线、随后每个交易日原始事件及按证券索引的实际增量。
+   *
+   * @author chenxuefeng
+   */
+  private record BaoStockExtension(
+      Map<String, MarketFactorSnapshot> baselines,
+      Map<LocalDate, List<Map<String, String>>> days,
+      Map<String, NavigableMap<LocalDate, Double>> changes) {
+    private static BaoStockExtension empty() {
+      return new BaoStockExtension(Map.of(), Map.of(), Map.of());
+    }
   }
 
   private JsonNode factorEvents(String raw) {

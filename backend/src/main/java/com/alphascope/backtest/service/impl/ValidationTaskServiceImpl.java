@@ -105,6 +105,13 @@ public class ValidationTaskServiceImpl implements ValidationTaskService {
         || request.getEnd().isAfter(LocalDate.now(clock.withZone(ZoneId.of("Asia/Shanghai"))))) {
       throw new BusinessException(ResultCode.INVALID_ARGUMENT, 400, "验证起止日期必填、顺序正确，最多十年且不能使用未来日期");
     }
+    var capital = request.getPortfolioCapital();
+    if (capital != null
+        && (request.getScope() == ResearchValidationRequest.Scope.MARKET
+            || capital.compareTo(java.math.BigDecimal.valueOf(1000)) < 0
+            || capital.compareTo(java.math.BigDecimal.valueOf(10000000)) > 0))
+      throw new BusinessException(
+          ResultCode.INVALID_ARGUMENT, 400, "共用资金回放需要自选验证，本金范围为1,000至10,000,000元");
     var available =
         request.getScope() == ResearchValidationRequest.Scope.MARKET
             ? List.<String>of()
@@ -132,6 +139,7 @@ public class ValidationTaskServiceImpl implements ValidationTaskService {
             .end(request.getEnd())
             .scope(request.getScope())
             .symbols(List.copyOf(selected))
+            .portfolioCapital(capital)
             .build();
     var command = new ValidationCommand(frozen, rules.snapshot());
     String json = Jsons.write(command), scope = market.providerStatus().dataScope();

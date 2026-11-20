@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import SectionTabs from '../components/common/SectionTabs.vue';
 import SourceLicensePanel from '../components/product/SourceLicensePanel.vue';
 import AsyncState from '../components/common/AsyncState.vue';
@@ -27,6 +27,9 @@ const tabs = [
   { id: 'accounts', label: '账号支持' },
 ];
 const { data, loading, error, reload } = useResource(getProductStatus, [() => props.refreshToken]);
+const licenseSources = computed(() => [
+  ...new Set([...(data.value?.licenses.map((item) => item.source) || []), 'BIGQUANT']),
+]);
 const page = ref(1);
 const users = useResource(() => getManagedUsers(page.value));
 const mutation = useMutation();
@@ -153,6 +156,12 @@ async function changePage(value: number) {
                 <p class="help-text">
                   本机研究可以继续；这些待办需要实际授权、运行和交付证据完成验收。
                 </p>
+                <el-button
+                  link
+                  @click="activeTab = 'licenses'"
+                >
+                  核对来源与已登记用途
+                </el-button>
               </details>
               <p class="help-text">
                 自动备份{{
@@ -185,10 +194,10 @@ async function changePage(value: number) {
                   placeholder="选择已配置来源"
                 >
                   <el-option
-                    v-for="item in data.licenses"
-                    :key="item.source"
-                    :value="item.source"
-                    :label="sourceName(item.source)"
+                    v-for="source in licenseSources"
+                    :key="source"
+                    :value="source"
+                    :label="sourceName(source)"
                   />
                 </el-select>
                 <label>实际取得的使用范围</label>

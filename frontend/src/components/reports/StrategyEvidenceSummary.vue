@@ -46,6 +46,16 @@ const judgment = computed(() =>
       {{ reproducible ? '冻结输入可复算；可复算不等于策略有效。' : '尚未取得完整复算通过证明。' }}
     </p>
     <dl>
+      <div v-if="holdout?.tradeStatistics">
+        <dt>较晚留出 · 扣费后已平仓胜率</dt>
+        <dd>
+          {{ percent(holdout.tradeStatistics.winRate, 2) }}
+          <small>
+            {{ holdout.tradeStatistics.winningTrades }} /
+            {{ holdout.tradeStatistics.closedTrades }} 笔
+          </small>
+        </dd>
+      </div>
       <div>
         <dt>较晚留出 · 扣费后净值收益</dt>
         <dd>{{ usable ? percent(holdout?.netReturn, 2) : '—' }}</dd>
@@ -72,9 +82,7 @@ const judgment = computed(() =>
       <summary>为什么还不能认定提高胜率？</summary>
       <ul>
         <li>这里是固定执行假设下的历史回顾；当前自选范围存在选择偏差，不能推广到所有A股。</li>
-        <li>
-          正收益占比是信号后窗口统计，不是扣除成本后的交易胜率；还需要盈亏比、回撤和真实可成交性。
-        </li>
+        <li>已平仓胜率按扣费后盈利的完整持仓周期统计。还需结合样本数、回撤和实际可成交性判断。</li>
         <li>
           较晚留出仍来自历史数据。还需持续记录方法冻结之后的新信号，并用后续数据检验，不能反复调参后继续称作独立验证。
         </li>

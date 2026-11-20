@@ -18,4 +18,11 @@ public record PositionInput(
     @NotNull @DecimalMin("0") BigDecimal costPrice,
 
     /** 本次资产或产业指标登记对应的业务日期。 */
-    @NotNull LocalDate asOfDate) {}
+    @NotNull LocalDate asOfDate,
+    /** 人工相关风险标签，可用逗号分隔多项，不冒充官方行业分类。 */
+    @jakarta.validation.constraints.Size(max = 256) String riskGroup) {
+  /** 旧请求没有风险标签时保持未知。 */
+  public PositionInput(BigDecimal quantity, BigDecimal costPrice, LocalDate asOfDate) {
+    this(quantity, costPrice, asOfDate, null);
+  }
+}

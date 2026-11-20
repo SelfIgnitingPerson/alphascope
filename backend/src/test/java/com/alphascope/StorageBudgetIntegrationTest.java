@@ -28,7 +28,7 @@ class StorageBudgetIntegrationTest {
         var q = c.createStatement()) {
       q.executeUpdate("UPDATE storage_budget SET limit_bytes=2000 WHERE scope_id IN(0,-1)");
       q.executeUpdate(
-          "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',REPEAT('x',600),REPEAT('a',64))");
+          "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',CONCAT(CHAR(34),REPEAT('x',598),CHAR(34)),REPEAT('a',64))");
       assertEquals(600, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));
       assertEquals(600, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=1"));
       q.executeUpdate(
@@ -39,7 +39,7 @@ class StorageBudgetIntegrationTest {
               SQLException.class,
               () ->
                   q.executeUpdate(
-                      "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',REPEAT('x',800),REPEAT('b',64))"));
+                      "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',CONCAT(CHAR(34),REPEAT('x',798),CHAR(34)),REPEAT('b',64))"));
       assertTrue(failure.getMessage().contains("ALPHASCOPE_STORAGE_"));
       assertEquals(1, number(q, "SELECT COUNT(*) FROM research_plan"));
       assertEquals(600, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));
@@ -47,18 +47,19 @@ class StorageBudgetIntegrationTest {
       assertEquals(0, number(q, "SELECT reserved_bytes FROM storage_budget WHERE scope_id=0"));
       c.setAutoCommit(false);
       q.executeUpdate(
-          "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',REPEAT('x',500),REPEAT('c',64))");
+          "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',CONCAT(CHAR(34),REPEAT('x',498),CHAR(34)),REPEAT('c',64))");
       c.rollback();
       c.setAutoCommit(true);
       assertEquals(600, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));
-      q.executeUpdate("UPDATE research_plan SET snapshot_json=REPEAT('x',900) WHERE id=1");
+      q.executeUpdate(
+          "UPDATE research_plan SET snapshot_json=CONCAT(CHAR(34),REPEAT('x',898),CHAR(34)) WHERE id=1");
       assertEquals(900, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));
       q.executeUpdate("UPDATE storage_budget SET limit_bytes=1000 WHERE scope_id=1");
       assertThrows(
           SQLException.class,
           () ->
               q.executeUpdate(
-                  "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',REPEAT('x',200),REPEAT('d',64))"));
+                  "INSERT INTO research_plan(symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES('600000.SH','SHORT','TEST',CONCAT(CHAR(34),REPEAT('x',198),CHAR(34)),REPEAT('d',64))"));
       assertEquals(900, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));
       q.executeUpdate("DELETE FROM research_plan WHERE id=1");
       assertEquals(0, number(q, "SELECT used_bytes FROM storage_budget WHERE scope_id=0"));

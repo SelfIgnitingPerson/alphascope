@@ -8,14 +8,12 @@ import static com.alphascope.intelligence.calculator.HoldingResearchSupport.perc
 import static com.alphascope.intelligence.calculator.HoldingResearchSupport.unavailable;
 import static com.alphascope.intelligence.calculator.HoldingResearchSupport.value;
 
-import com.alphascope.fundamental.entity.FinancialReport;
 import com.alphascope.intelligence.dto.HoldingResearchInput;
 import com.alphascope.intelligence.vo.HoldingResearchView.Action;
 import com.alphascope.intelligence.vo.HoldingResearchView.Horizon;
 import com.alphascope.intelligence.vo.PositionStrategy.Condition;
 import com.alphascope.intelligence.vo.PriceVolumeStudy;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -37,25 +35,8 @@ final class LongTermResearchCalculator {
     } catch (IllegalArgumentException gap) {
       missing.add(gap.getMessage());
     }
-    var cutoff = input.asOf().atTime(16, 10);
-    var financial =
-        input.stock().financials().stream()
-            .filter(
-                f ->
-                    f.getPeriodEnd() != null
-                        && !f.getPeriodEnd().isAfter(input.asOf())
-                        && f.getPublishedAt() != null
-                        && !f.getPublishedAt().isAfter(cutoff)
-                        && !(f.getAvailableAt() != null
-                                ? f.getAvailableAt()
-                                : "DAY".equals(f.getPublicationPrecision())
-                                    ? f.getPublishedAt().toLocalDate().plusDays(1).atStartOfDay()
-                                    : f.getPublishedAt())
-                            .isAfter(cutoff))
-            .max(
-                Comparator.comparing(FinancialReport::getPeriodEnd)
-                    .thenComparing(f -> f.getVersion() == null ? 0 : f.getVersion()))
-            .orElse(null);
+    var visibleReports = ValuationAuditCalculator.visible(input.stock().financials(), input.asOf());
+    var financial = ValuationAuditCalculator.latest(visibleReports);
     boolean freshFinancial =
         financial != null && !financial.getPeriodEnd().isBefore(input.asOf().minusDays(200));
     if (!freshFinancial) missing.add("最近200天内的有效累计财报期末与公开来源");
@@ -63,8 +44,36 @@ final class LongTermResearchCalculator {
     if (financial == null || financial.getOperatingCashflow() == null) missing.add("已披露经营现金流");
     if (financial == null || financial.getRevenueYoy() == null || financial.getProfitYoy() == null)
       missing.add("同口径营收与利润同比");
-    missing.add("可核验的估值合理区间及安全边际，尚未接入");
-    missing.add("竞争优势、订单与产业逻辑的人工核验，尚未完成");
+    var audit = input.valuationAudit();
+    boolean audited =
+        audit != null
+            && input.asOf().equals(audit.date())
+            && "CHECKED_WITH_LIMITS".equals(audit.status())
+            && audit.conservativeCap() != null;
+    if (!audited) missing.add("独立估值核验未完成，需补齐实际股本、同源滚动盈利和有效同行；用户勾选不能解除缺项");
+    var thesis = input.valuationThesis();
+    boolean knownThesis =
+        thesis != null
+            && thesis.symbol().equals(input.stock().symbol())
+            && !thesis.asOf().isAfter(input.asOf());
+    boolean valued = knownThesis && !thesis.validUntil().isBefore(input.asOf());
+    var exitChecks =
+        LongTermExitConditions.evaluate(
+            knownThesis ? thesis.exitPolicy() : null, visibleReports, financial, input.asOf());
+    boolean exit = exitChecks.stream().anyMatch(c -> Boolean.TRUE.equals(c.met()));
+    Boolean exitClear =
+        exitChecks.isEmpty() || exitChecks.stream().anyMatch(c -> c.met() == null) ? null : !exit;
+    if (exitChecks.isEmpty()) missing.add("缺少已登记的可量化长期退出条件");
+    else if (exitClear == null) missing.add("尚缺连续同源财报，无法完整核对长期退出条件");
+    boolean business = valued && thesis.businessConfirmed();
+    Double valueLow = valued ? money(thesis.epsLow().multiply(thesis.peLow()).doubleValue()) : null;
+    Double valueHigh =
+        valued ? money(thesis.epsHigh().multiply(thesis.peHigh()).doubleValue()) : null;
+    Double entryLow = valued ? money(valueLow * (1 - thesis.safetyMargin().doubleValue())) : null;
+
+    if (!valued) missing.add("尚无当前用户有效的EPS、PE估值情景与安全边际，或假设已过复核期限");
+    if (!business) missing.add("竞争优势、订单与产业逻辑尚未由用户依据公开资料确认");
+    if (audited && valued) entryLow = money(Math.min(entryLow, audit.conservativeCap()));
     Boolean earnings =
         financial == null
                 || financial.getNetProfit() == null
@@ -102,7 +111,7 @@ final class LongTermResearchCalculator {
                 .count()
             == 3;
     if (!fullyChecked) missing.add("本期利润、现金流及毛利率风险规则尚未全部完成核验");
-    boolean risk = Boolean.TRUE.equals(financialRisk) || !currentRules.isEmpty();
+    boolean risk = exit || Boolean.TRUE.equals(financialRisk) || !currentRules.isEmpty();
     Boolean riskObserved =
         risk ? Boolean.TRUE : financialRisk != null && fullyChecked ? Boolean.FALSE : null;
     String triggeredRules =
@@ -152,26 +161,78 @@ final class LongTermResearchCalculator {
                 "收盘" + value(study.close()) + "元；MA250=" + value(ma250) + "元",
                 "收盘不低于MA250",
                 ma250 == null ? null : study.close() >= ma250),
-            new Condition("长期合理买价", "尚无已核验估值区间", "先核对盈利质量、估值与安全边际，再制定分批执行价", null),
-            new Condition("核心业务逻辑", "订单、竞争优势与产业证据待核验", "由公开证据确认经营逻辑仍成立", null));
-    String entryStatus = risk ? "RISK_BLOCKED" : "WAIT";
+            new Condition(
+                "长期合理买价",
+                valued
+                    ? "用户情景价值"
+                        + value(valueLow)
+                        + "–"
+                        + value(valueHigh)
+                        + "元；扣安全边际后观察"
+                        + value(entryLow)
+                        + "元（保守情景的上限）"
+                    : "尚无有效估值假设",
+                "当期收盘不高于保守情景扣安全边际后的上限；过低也须重新核验经营风险",
+                valued ? study.close() <= entryLow : null),
+            new Condition(
+                "独立估值证据",
+                audit == null
+                    ? "尚未核验股本与同行"
+                    : (switch (audit.status()) {
+                          case "CHECKED_WITH_LIMITS" -> "资料交叉核验完成，仍有边界";
+                          case "INCONSISTENT" -> "材料数值不一致";
+                          default -> "核验材料未齐";
+                        })
+                        + "；逐项缺项见估值核验",
+                "真实股本、TTM盈利及至少3家有效同行通过交叉检查，仍受方法边界约束",
+                audited ? true : null),
+            new Condition(
+                "核心业务逻辑",
+                valued ? thesis.rationale() : "订单、竞争优势与产业证据待核验",
+                "用户已核对公开证据且未超过复核日",
+                valued ? business : null),
+            new Condition(
+                "长期退出条件核对",
+                exit ? "已触发登记的财报失效条件" : exitClear == null ? "待补条件或财报" : "已核对，未触发",
+                "已登记条件且以当期公开财报核验通过",
+                exitClear),
+            new Condition(
+                "财报规则核验",
+                fullyChecked ? "当期三项财报风险规则均有记录" : "利润、现金流或毛利率风险规则缺项",
+                "当期风险核验齐备",
+                fullyChecked ? true : null));
+    boolean matched = conditions.stream().allMatch(c -> Boolean.TRUE.equals(c.met()));
+    String entryStatus = risk ? "RISK_BLOCKED" : matched ? "CONDITIONAL_MATCH" : "WAIT";
+    String entryConclusion =
+        !valued
+            ? "先保存有公开依据的估值情景及失效条件，再复核长期观察价。"
+            : risk
+                ? "已有经营或规则风险，暂不新增；估值情景不解除风险拦截。"
+                : matched
+                    ? "本期行情、财报与用户估值情景条件满足；这仅是可复核候选，须再确认经营假设及个人风险预算。"
+                    : "已有用户估值情景，但条件尚未全部满足；逐项核对价格、财报和经营逻辑后再决定。";
     var actions =
         List.of(
             Action.builder()
                 .code("LONG_OPEN")
                 .title("长期建仓")
                 .status(entryStatus)
-                .conclusion("估值和核心逻辑未核实，当前不形成长期合理买入价；先完成缺项，再用技术条件选择执行时机。")
+                .conclusion(entryConclusion)
+                .referencePrice(entryLow)
+                .referenceLabel("保守估值情景扣安全边际后的观察上限，非保证价值")
                 .conditionLogic("ALL")
                 .conditions(conditions)
-                .invalidation(List.of("盈利质量、竞争优势或估值假设不成立时撤销长期建仓计划。"))
+                .invalidation(
+                    List.of(valued ? thesis.invalidation() : "盈利质量、竞争优势或估值假设不成立时撤销长期建仓计划。"))
                 .assumptions(ASSUMPTIONS)
                 .build(),
             Action.builder()
                 .code("LONG_ADD")
                 .title("长期加仓")
                 .status(entryStatus)
-                .conclusion("已有持仓也须重新核验估值与原逻辑；不因价格下跌而默认加仓。当前缺项未清除，等待复核。")
+                .conclusion(entryConclusion + "已有持仓不因价格下跌而自动加仓。")
+                .referencePrice(entryLow)
+                .referenceLabel("保守估值情景扣安全边际后的观察上限，非保证价值")
                 .conditionLogic("ALL")
                 .conditions(conditions)
                 .invalidation(List.of("新增财报或产业证据否定原逻辑时停止加仓。"))
@@ -211,13 +272,13 @@ final class LongTermResearchCalculator {
             Action.builder()
                 .code("LONG_EXIT")
                 .title("长期逻辑退出")
-                .status("WAIT")
-                .conclusion("确认核心业务逻辑失效、估值假设被否定或个人原定风险底线到达时，执行原退出计划；系统尚未核实这些个人与经营前提。")
+                .status(exit ? "WATCH" : exitClear == null ? "UNAVAILABLE" : "WAIT")
+                .conclusion(
+                    exit
+                        ? "已触发原情景登记的财报失效条件，优先复核退出。"
+                        : exitClear == null ? "补齐已登记的退出条件和所需财报后复核。" : "已核对登记的财报条件，本期继续跟踪。")
                 .conditionLogic("ANY")
-                .conditions(
-                    List.of(
-                        new Condition("核心逻辑失效", "待核验", "持续经营证据确认原投资逻辑被否定", null),
-                        new Condition("个人风险底线", "未读取个人成本和风险预算", "达到原先明确的个人退出条件", null)))
+                .conditions(exitChecks)
                 .invalidation(List.of("不能把短期止损触发后改称长期投资，来取消原先的风险计划。"))
                 .assumptions(ASSUMPTIONS)
                 .build());
@@ -229,13 +290,34 @@ final class LongTermResearchCalculator {
               + "，来源"
               + financial.getSource()
               + "；单期正增长不证明未来盈利。");
-    facts.add("长期方向要逐期核对财报、现金流、产业逻辑与估值；本产品尚未核实合理价值和个人投资论点。");
+    facts.add("估值情景=用户年化EPS假设×PE倍数，再扣用户安全边际；不是系统认证价值或历史时点可得性证明。因股本、盈利或行业逻辑变化须重建情景。");
+    if (valued) {
+      facts.add(
+          "情景研究日" + thesis.asOf() + "，最迟复核" + thesis.validUntil() + "；公开依据" + thesis.sourceUrl());
+      facts.add("用户确认的失效条件：" + thesis.invalidation());
+    }
+    if (audited) {
+      facts.add(
+          "独立核验实际股数 "
+              + value(
+                  thesis == null || thesis.shareBasis() == null
+                      ? null
+                      : thesis.shareBasis().currentShares())
+              + "，TTM EPS "
+              + value(audit.observedTtmEps())
+              + " 元，同行市盈率下四分位 "
+              + value(audit.peerPeLowerQuartile())
+              + " 倍，核验后保守上限 "
+              + value(audit.conservativeCap())
+              + " 元。");
+    }
+    exitChecks.forEach(c -> facts.add(c.label() + " · " + c.observed() + " · " + c.required()));
     return Horizon.builder()
         .code("LONG")
         .title("长期经营持有")
         .period("6–24个月")
-        .status(risk ? "WATCH" : ma250 == null ? "UNAVAILABLE" : "WAIT")
-        .conclusion(risk ? "先复核经营风险，当前不支持新增长期风险。" : "长期建仓与加仓等待估值和经营逻辑核验；已有持仓按下列证据和退出前提逐期检查。")
+        .status(risk ? "WATCH" : ma250 == null ? "UNAVAILABLE" : entryStatus)
+        .conclusion(entryConclusion)
         .actions(actions)
         .evidence(facts)
         .missing(missing)

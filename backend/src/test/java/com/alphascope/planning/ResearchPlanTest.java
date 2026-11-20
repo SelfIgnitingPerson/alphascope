@@ -227,4 +227,112 @@ class ResearchPlanTest {
     assertTrue(result.explanation().contains(end.minusDays(1).toString()));
     assertTrue(result.explanation().contains("收盘收复"));
   }
+
+  @Test
+  void identicalPlanReturnsExistingEvenWhenBudgetIsFull() {
+    var row = seed();
+    when(research.read(anyString(), any())).thenReturn(view(start, 100.0, "TEST"));
+    var bar = new MarketBarDO();
+    bar.setTradeDate(start);
+    bar.setSource("TEST");
+    bar.setFactor(BigDecimal.ONE);
+    when(market.bars(anyString(), any())).thenReturn(List.of(bar));
+    when(mapper.identicalPlan(any())).thenReturn(row);
+    when(mapper.evidenceCount()).thenReturn(1000L);
+    assertEquals(
+        7L,
+        service
+            .create(
+                new com.alphascope.planning.dto.PlanCreateInput(
+                    "600000.SH", start, "SHORT", "OPEN_PULLBACK"))
+            .id());
+    verify(mapper, never()).insert(any());
+    verify(mapper, never()).evidenceCount();
+  }
+
+  @Test
+  void identicalReviewDoesNotConsumeBudgetOrAppend() {
+    seed();
+    when(research.read(anyString(), any())).thenReturn(view(end, 100.0, "TEST"));
+    var bar = new MarketBarDO();
+    bar.setTradeDate(end);
+    bar.setSource("TEST");
+    bar.setFactor(BigDecimal.ONE);
+    when(market.bars(anyString(), any())).thenReturn(List.of(bar));
+    when(mapper.identicalReview(any())).thenReturn(new com.alphascope.planning.entity.PlanReview());
+    when(mapper.evidenceCount()).thenReturn(1000L);
+    assertEquals("UNCHANGED", service.review(7, new PlanReviewInput(end)).status());
+    verify(mapper, never()).review(any());
+  }
+
+  @Test
+  void selectedDateIsForwardedToReviewLookup() {
+    var query = new com.alphascope.planning.dto.PlanQuery();
+    query.setAsOf(start);
+    var summary =
+        new com.alphascope.planning.vo.PlanSummary(
+            7,
+            "600000.SH",
+            "测试",
+            "SHORT",
+            "OPEN_PULLBACK",
+            false,
+            null,
+            start,
+            null,
+            null,
+            null,
+            false,
+            null,
+            null,
+            java.util.Set.of());
+    when(mapper.page(query)).thenReturn(List.of(summary));
+    when(mapper.latestReviews(any())).thenReturn(List.of());
+    service.page(query);
+    verify(mapper)
+        .latestReviews(argThat(q -> q.asOf().equals(start) && q.planIds().equals(List.of(7L))));
+  }
+
+  @Test
+  void sourceSetOrderDoesNotChangeSavedEvidenceIdentity() {
+    var first =
+        view(start, 100.0, "TEST").toBuilder()
+            .inputSources(new java.util.LinkedHashSet<>(List.of("SINA", "EASTMONEY_FINANCIAL")))
+            .build();
+    var second =
+        first.toBuilder()
+            .inputSources(new java.util.LinkedHashSet<>(List.of("EASTMONEY_FINANCIAL", "SINA")))
+            .build();
+    when(research.read(anyString(), any())).thenReturn(first, second);
+    var bar = new MarketBarDO();
+    bar.setTradeDate(start);
+    bar.setSource("TEST");
+    bar.setFactor(BigDecimal.ONE);
+    when(market.bars(anyString(), any())).thenReturn(List.of(bar));
+    var saved = new java.util.concurrent.atomic.AtomicReference<ResearchPlan>();
+    doAnswer(
+            inv -> {
+              ResearchPlan row = inv.getArgument(0);
+              row.setId(9L);
+              saved.set(row);
+              return null;
+            })
+        .when(mapper)
+        .insert(any());
+    when(mapper.get(9L)).thenAnswer(inv -> saved.get());
+    when(mapper.identicalPlan(any()))
+        .thenAnswer(
+            inv -> {
+              ResearchPlan row = inv.getArgument(0);
+              return saved.get() != null
+                      && saved.get().getSnapshotHash().equals(row.getSnapshotHash())
+                  ? saved.get()
+                  : null;
+            });
+    var input =
+        new com.alphascope.planning.dto.PlanCreateInput(
+            "600000.SH", start, "SHORT", "OPEN_PULLBACK");
+    assertEquals(service.create(input).id(), service.create(input).id());
+    verify(mapper, times(1)).insert(any());
+  }
 }

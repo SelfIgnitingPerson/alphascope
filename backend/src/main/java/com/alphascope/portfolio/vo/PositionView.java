@@ -23,13 +23,16 @@ public record PositionView(
     @JsonProperty("cost_price") BigDecimal costPrice,
 
     /** 本次资产或产业指标登记对应的业务日期。 */
-    @JsonProperty("as_of_date") String asOfDate) {
+    @JsonProperty("as_of_date") String asOfDate,
+    /** 人工相关风险标签。 */
+    @JsonProperty("risk_group") String riskGroup) {
   public static PositionView from(PositionDO row) {
     return new PositionView(
         row.getSymbol(),
         row.getName(),
         row.getQuantity(),
         row.getCostPrice(),
-        row.getAsOfDate().toString());
+        row.getAsOfDate().toString(),
+        row.getRiskGroup());
   }
 }

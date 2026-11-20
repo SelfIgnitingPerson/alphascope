@@ -7,6 +7,7 @@ export interface ResearchValidationRequest {
   end: string;
   scope: 'ALL' | 'TECHNICAL' | 'MARKET';
   symbols: string[];
+  portfolioCapital?: number;
 }
 /** 实际清单覆盖，不把沪深数量作为全A分母。 */
 export interface UniverseCoverage {
@@ -64,6 +65,7 @@ export interface ValidationSummary {
   }[];
   blockers: string[];
   limitations: string[];
+  portfolio?: StrategySimulation | null;
   verification: {
     matched: boolean;
     marketWindows: number;
@@ -92,11 +94,43 @@ export interface ValidationTask {
   summary?: ValidationSummary | null;
 }
 
+/** 按冻结执行口径记录逐笔买卖和平仓净盈亏。 */
+export interface ReplayTradeDetails {
+  closedCycles: { symbol: string; openedOn: string; closedOn: string; netPnl: number }[];
+  orders: {
+    symbol: string;
+    signalDate: string | null;
+    executionDate: string | null;
+    action: string;
+    trigger: string;
+    shares: number | null;
+    fillPrice: number | null;
+    fee: number | null;
+    blockedReason: string | null;
+    entryBudget?: {
+      oneLotAmount: number;
+      oneLotCost: number;
+      cash: number;
+      positionRoom: number;
+      estimatedStopLoss: number | null;
+      riskLimit: number;
+    };
+  }[];
+  filteredEntries: number;
+  entryExecution?: { signals: number; filled: number; blocked: Record<string, number> };
+}
+
 /** 新验证任务冻结的保守组合模拟；旧任务不补写。 */
 export interface StrategySimulation {
   version: string;
   parameters: Record<string, number>;
   limitations: string[];
+  comparisons?: { code: string; title: string; periods: StrategySimulation['periods'] }[];
+  stockMediumReplays?: {
+    symbol: string;
+    original: StrategySimulation['periods'];
+    trend: StrategySimulation['periods'];
+  }[];
   periods: {
     label: string;
     start: string;
@@ -110,5 +144,27 @@ export interface StrategySimulation {
     fees: number;
     openPosition: boolean;
     reason: string;
+    skipReasons?: Record<string, number> | null;
+    details?: ReplayTradeDetails | null;
+    tradeQuality?: {
+      averageClosedPnl: number | null;
+      closedPnlWithoutBestWinner: number | null;
+      delayedExitSessions: number;
+      longestExitDelay: number;
+      pendingExit: boolean;
+      marketRegimes?: {
+        code: string;
+        closedTrades: number;
+        winningTrades: number;
+        netPnl: number | null;
+      }[];
+    } | null;
+    tradeStatistics?: {
+      closedTrades: number;
+      winningTrades: number;
+      losingTrades: number;
+      breakEvenTrades: number;
+      winRate: number | null;
+    } | null;
   }[];
 }

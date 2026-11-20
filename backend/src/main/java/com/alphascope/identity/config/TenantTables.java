@@ -12,10 +12,14 @@ public final class TenantTables {
   public static final Set<String> PRIVATE =
       Set.of(
           "watchlist",
+          "investment_thesis",
           "research_plan",
           "research_plan_review",
           "portfolio_account",
           "portfolio_position",
+          "portfolio_revision",
+          "research_observation",
+          "forward_result",
           "indicator_snapshot",
           "signal_event",
           "signal_revision",
@@ -36,6 +40,7 @@ public final class TenantTables {
   public static final Set<String> SHARED =
       Set.of(
           "instrument",
+          "corporate_action",
           "theme_leader_revision",
           "adjustment_factor",
           "daily_bar",

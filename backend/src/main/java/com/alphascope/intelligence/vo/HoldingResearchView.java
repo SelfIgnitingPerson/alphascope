@@ -1,5 +1,6 @@
 package com.alphascope.intelligence.vo;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.Builder;
@@ -30,19 +31,36 @@ public record HoldingResearchView(
     /** 口径、适用前提和执行限制。 */
     List<String> notes,
     /** 本次实际价格、财报及规则输入来源；旧冻结记录为空时不倒填。 */
-    @com.fasterxml.jackson.annotation.JsonInclude(
-            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        java.util.Set<String> inputSources,
+    @JsonInclude(JsonInclude.Include.NON_NULL) java.util.Set<String> inputSources,
     /** 当前研究的观察优先级；旧冻结记录缺省，不倒填。 */
-    @com.fasterxml.jackson.annotation.JsonInclude(
-            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        List<ResearchPriority> priorities) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) List<ResearchPriority> priorities,
+    /** 最近20个同源有效交易日平均成交额，元；不足时为空，不作为逐笔可成交证明。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) Double turnover20,
+    /** 信号当日原价对应的同源复权因子。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) Double quoteFactor,
+    /** 同日研究所用原价、因子与财报事实指纹，不包含抓取时间。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) String dataHash,
+    /** 私人假设指纹，改变不冒充公司新事实。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) String assumptionHash,
+    /** 当次股本、滚动盈利、同行与保守上限，随研究快照冻结。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) ValuationAuditView valuationAudit,
+    /** 供当前中期页面复核的顺趋势候选，与冻结计划的原方案分开。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) MediumTrendCandidate mediumTrendCandidate) {
+
+  /** 当前收盘后的中期顺趋势候选，资金可执行性由回放按实际次日开盘另行核对。 @author chenxuefeng */
+  public record MediumTrendCandidate(
+      boolean dataAvailable,
+      boolean trendMatched,
+      Double ma60,
+      Double stopReference,
+      boolean exit) {}
+
   /**
    * 单一持有周期的判断、行动条件与缺项。
    *
    * @author chenxuefeng
    */
-  @Builder
+  @Builder(toBuilder = true)
   public record Horizon(
       /** SHORT、MEDIUM、LONG。 */
       String code,
@@ -65,7 +83,7 @@ public record HoldingResearchView(
    *
    * @author chenxuefeng
    */
-  @Builder
+  @Builder(toBuilder = true)
   public record Action(
       /** 稳定方案代码。 */
       String code,

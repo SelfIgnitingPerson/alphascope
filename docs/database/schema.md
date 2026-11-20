@@ -2,7 +2,7 @@
 
 以唯一 [V1开发基线](../../backend/src/main/resources/db/migration/V1__baseline.sql) 为准。金额为人民币元、数量为股、比例为小数，业务时间为上海时区。
 
-当前共46张业务与控制表、444个中文字段注释，Flyway历史表另计。私人表的tenant_id由认证身份或后台执行范围注入，不接受客户端指定；共享数据边界见[多用户设计](../architecture/multi-user.md)。
+当前共51张业务与控制表、494个中文字段注释，Flyway历史表另计。私人表的tenant_id由认证身份或后台执行范围注入，不接受客户端指定；共享数据边界见[多用户设计](../architecture/multi-user.md)。
 
 ## instrument
 
@@ -149,6 +149,7 @@
 | content_hash | char(64) DEFAULT NULL | 内容SHA-256指纹，用于去重和定位不可变证据 |
 | source_url | text | 原始公开来源URL，用于核验和追溯 |
 | raw_json | json DEFAULT NULL | 供应商原始响应JSON，用于核验来源及保留当次证据 |
+| raw_payload | longtext DEFAULT NULL | 服务端封装的报表证据精确文本，配合content_hash验证；旧行NULL不补造原始字节 |
 
 ## indicator_snapshot
 
@@ -426,6 +427,12 @@
 | tenant_id | bigint NOT NULL DEFAULT '1' | 所属用户的私人研究范围，不接受客户端指定 |
 | id | bigint NOT NULL | 单账户固定主键1，不自增 |
 | total_assets | decimal(24,4) DEFAULT NULL | 人工登记的投资资产总额，人民币元；NULL表示未知，已填须大于0 |
+| risk_budget | decimal(24,4) DEFAULT NULL | 用户自行设定的组合风险预算，人民币元；NULL未知，不是系统推荐额度 |
+| cash_balance | decimal(24,4) DEFAULT NULL | 用户明确登记的现金余额，不从总资产减股票市值猜测 |
+| positions_complete | tinyint(1) DEFAULT NULL | 用户是否确认已登记全部持仓，NULL未知，不由空表推断空仓 |
+| liquidity_reserve | decimal(24,4) DEFAULT NULL | 为近期用途预留的人民币金额；NULL未知，不按零推定可投资 |
+| funds_needed_on | date DEFAULT NULL | 用户登记的预计用款日，不用于推测交易期限 |
+| funds_purpose | varchar(300) DEFAULT NULL | 用户登记的资金用途，仅当前身份可见，不用于自动下单 |
 | as_of_date | date NOT NULL | 人工登记或指标对应的业务日期，非数据库更新时间 |
 
 ## portfolio_position
@@ -442,6 +449,7 @@
 | as_of_date | date NOT NULL | 人工登记或指标对应的业务日期，非数据库更新时间 |
 | created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 记录创建时间，上海时区 |
 | updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 记录最后更新时间，上海时区 |
+| risk_group | varchar(256) DEFAULT NULL | 人工相关风险标签，逗号分隔可重叠，不冒充官方行业分类 |
 
 ## report_input_snapshot
 
@@ -729,6 +737,8 @@
 | action_code | varchar(64) NOT NULL | 冻结行动方案代码 |
 | snapshot_json | longtext NOT NULL | 原始研究精确JSON文本，不随新行情覆盖 |
 | snapshot_hash | char(64) NOT NULL | 原始研究文本SHA256 |
+| research_date | date GENERATED ALWAYS AS (CASE WHEN JSON_TYPE(JSON_EXTRACT(snapshot_json,'$.research.asOf'))='STRING' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(snapshot_json,'$.research.asOf')) AS DATE) ELSE NULL END) STORED | 冻结研究日，由原始证据派生并建立日期索引 |
+| acknowledged_review_hash | char(64) DEFAULT NULL | 用户已阅读复核的精确指纹，新证据不自动确认 |
 | archived | tinyint(1) NOT NULL DEFAULT 0 | 用户是否已归档，归档不删除证据 |
 | created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 计划实际保存时间，上海时区 |
 
@@ -743,6 +753,7 @@
 | plan_id | bigint NOT NULL | 所属原始计划主键 |
 | review_json | longtext NOT NULL | 本次复核精确JSON，追加而不覆盖 |
 | review_hash | char(64) NOT NULL | 本次复核文本SHA256 |
+| review_date | date GENERATED ALWAYS AS (CASE WHEN JSON_TYPE(JSON_EXTRACT(review_json,'$.date'))='STRING' THEN CAST(JSON_UNQUOTE(JSON_EXTRACT(review_json,'$.date')) AS DATE) ELSE NULL END) STORED | 复核业务日，由不可变复核证据派生 |
 | created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 复核保存时间，上海时区 |
 
 ## theme_leader_revision
@@ -769,3 +780,77 @@
 | reserved_bytes | bigint NOT NULL DEFAULT 0 | 活动日报、共享采集及验证任务的保守预留，终态原子释放 |
 | limit_bytes | bigint NOT NULL | 该范围证据使用与预留的总上限，单位字节 |
 | updated_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6) | 计量或额度最后变更时刻，上海时区 |
+
+## corporate_action
+
+带公开公告的送转分红证据，不从价格因子反推
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 公开公司行动证据主键 |
+| symbol | varchar(16) NOT NULL | 含交易所后缀证券代码 |
+| business_date | date NOT NULL | 除权除息业务日期 |
+| evidence_json | longtext NOT NULL | 公告日期、送转分红及同源因子的完整证据JSON |
+| evidence_hash | char(64) NOT NULL | 不可变证据SHA256 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 实际登记时间，上海时区 |
+
+## investment_thesis
+
+用户明确确认的长期经营估值假设，不是系统目标价
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 用户长期估值情景主键 |
+| tenant_id | bigint NOT NULL DEFAULT 1 | 所属用户，由已认证身份注入 |
+| symbol | varchar(16) NOT NULL | 含交易所后缀证券代码 |
+| business_date | date NOT NULL | 研究情景依据截止日 |
+| evidence_json | longtext NOT NULL | EPS和PE区间、安全边际、依据及失效条件JSON |
+| evidence_hash | char(64) NOT NULL | 不可变情景SHA256 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 用户实际保存情景的时间，上海时区 |
+
+## portfolio_revision
+
+人工持仓与账户不可变登记历史
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 登记版本主键 |
+| tenant_id | bigint NOT NULL DEFAULT '1' | 所属用户，由服务端身份注入 |
+| record_kind | varchar(16) NOT NULL | POSITION持仓或ACCOUNT账户 |
+| symbol | varchar(16) NOT NULL | 持仓证券代码；账户固定ACCOUNT |
+| business_date | date NOT NULL | 用户声明的业务日期，不能替代实际记录时点 |
+| evidence_json | longtext NOT NULL | 服务端捕获的类型化人工登记内容 |
+| evidence_hash | char(64) NOT NULL | 登记内容SHA256，用于核验和幂等 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 首次真实登记时刻，禁止回填 |
+
+## research_observation
+
+实际每日判断与冻结协议的私人观察记录
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 每日观察修订主键 |
+| tenant_id | bigint NOT NULL DEFAULT '1' | 所属研究用户，由服务端注入 |
+| symbol | varchar(16) NOT NULL | 冻结研究对应的证券代码 |
+| business_date | date NOT NULL | 所选研究日；实际形成日以created_at为准 |
+| capture_kind | varchar(16) NOT NULL | LIVE本日形成或RETROSPECTIVE事后回看 |
+| evidence_json | longtext NOT NULL | 完整判断、协议与当时市场证据 |
+| evidence_hash | char(64) NOT NULL | 不可变观察内容SHA256 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 实际保存时间，不倒填为过去研究日 |
+
+## forward_result
+
+冻结前瞻窗口执行结果与可复算输入
+
+| 字段 | 类型与约束 | 说明 |
+| --- | --- | --- |
+| id | bigint NOT NULL AUTO_INCREMENT | 前瞻窗口结果主键 |
+| tenant_id | bigint NOT NULL DEFAULT '1' | 所属用户，由服务端身份注入 |
+| observation_id | bigint NOT NULL | 原始每日判断编号，不接受外部用户编号 |
+| action_code | varchar(40) NOT NULL | 冻结研究周期及行动代码 |
+| window_days | int NOT NULL | 按权威市场日历计数的5、10或20交易日窗口 |
+| metrics_json | longtext NOT NULL | 冻结执行结果、费用、基准与排除原因 |
+| input_json | longtext NOT NULL | 原判断指纹、协议、同源价格及日历的完整复算输入 |
+| content_hash | char(64) NOT NULL | 完整输入和结果的SHA256 |
+| metrics_hash | char(64) NOT NULL | 轻量结果正文SHA256，读取摘要也逐项核验 |
+| created_at | datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) | 首次实际完成评估时刻，不倒填 |

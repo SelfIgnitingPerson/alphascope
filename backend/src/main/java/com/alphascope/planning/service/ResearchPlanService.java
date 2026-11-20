@@ -32,6 +32,14 @@ public interface ResearchPlanService {
   PageResponse<PlanSummary> page(PlanQuery query);
 
   /**
+   * 分页读取计划与最近一次原风险线触及事实，保留每页的计划总数。
+   *
+   * @param query 用户、截止日期与分页范围
+   * @return 含历史触及事实的计划摘要；没有触及的计划复核为空
+   */
+  PageResponse<PlanSummary> pageWithOriginalRisk(PlanQuery query);
+
+  /**
    * 按当前身份读取完整冻结详情。
    *
    * @param id 计划主键
@@ -63,4 +71,12 @@ public interface ResearchPlanService {
    * @param id 计划主键
    */
   void archive(long id);
+
+  /**
+   * 确认已阅读一条复核，后续新增或改变的证据会重新进入待办。
+   *
+   * @param id 计划主键
+   * @param input 需要确认的研究日期
+   */
+  void acknowledge(long id, PlanReviewInput input);
 }

@@ -21,6 +21,7 @@ public final class ReleaseReadinessPolicy {
         switch (source.source()) {
           case "EXCHANGE_CALENDAR" -> "交易所公告日历";
           case "BAOSTOCK" -> "BaoStock";
+          case "BIGQUANT" -> "BigQuant 历史全 A";
           case "SINA" -> "新浪财经";
           case "EASTMONEY" -> "东方财富";
           case "EASTMONEY_DIRECTORY" -> "东方财富证券目录";

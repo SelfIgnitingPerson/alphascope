@@ -29,6 +29,45 @@ class ResearchDataRouterTest {
   private final Clock clock = Clock.fixed(Instant.parse("2026-10-30T10:00:00Z"), ZoneOffset.UTC);
 
   @Test
+  void fullSnapshotRetriesTransientDisconnectThreeTimesBeforeSwitchingSource() {
+    var primary = provider("EASTMONEY");
+    var partial = provider("BAOSTOCK");
+    var alternate = provider("TUSHARE");
+    when(primary.fullMarketSnapshots()).thenReturn(true);
+    when(alternate.fullMarketSnapshots()).thenReturn(true);
+    when(primary.snapshot(date)).thenThrow(new IllegalStateException(new java.io.EOFException()));
+    when(alternate.snapshot(date)).thenReturn(snapshot("TUSHARE"));
+    String result =
+        router(primary, partial, alternate).fullSnapshot(date, ResearchMarketSnapshot::source);
+    assertEquals("TUSHARE", result);
+    var order = inOrder(primary, alternate);
+    order.verify(primary, times(3)).snapshot(date);
+    order.verify(alternate).snapshot(date);
+    verify(partial, never()).snapshot(any());
+  }
+
+  @Test
+  void fullSnapshotSwitchesAfterCoverageFailureWithoutRepeatingInvalidResponse() {
+    var primary = provider("EASTMONEY");
+    var alternate = provider("TUSHARE");
+    when(primary.fullMarketSnapshots()).thenReturn(true);
+    when(alternate.fullMarketSnapshots()).thenReturn(true);
+    when(primary.snapshot(date)).thenReturn(snapshot("EASTMONEY"));
+    when(alternate.snapshot(date)).thenReturn(snapshot("TUSHARE"));
+    String result =
+        router(primary, alternate)
+            .fullSnapshot(
+                date,
+                candidate -> {
+                  if ("EASTMONEY".equals(candidate.source()))
+                    throw new IllegalStateException("FULL_A_DAILY_COVERAGE_INCOMPLETE");
+                  return candidate.source();
+                });
+    assertEquals("TUSHARE", result);
+    verify(primary).snapshot(date);
+  }
+
+  @Test
   void snapshotFailureDoesNotCoolDownTheSameProvidersFactorCapability() {
     var first = provider("FIRST");
     var second = provider("SECOND");

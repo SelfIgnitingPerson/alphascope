@@ -45,6 +45,9 @@ public class StageQualityInspector {
 
   @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
 
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.alphascope.planning.service.PlanFollowupService planFollowups;
+
   public StageQualityInspector(
       PortfolioService portfolio,
       MarketService market,
@@ -89,14 +92,35 @@ public class StageQualityInspector {
     List<StageQualityIssue> issues = new ArrayList<>();
     int expected = 0, available = 0;
     switch (stage) {
+      case PLAN_REVIEW -> {
+        var todo = planFollowups.todos(date);
+        return new StageQuality(
+            todo.total() == 0
+                ? DataQualityStatus.NOT_APPLICABLE
+                : todo.reviewed() == todo.total()
+                    ? DataQualityStatus.AVAILABLE
+                    : DataQualityStatus.PARTIAL,
+            todo.reviewed(),
+            todo.total(),
+            List.of(),
+            "计划已按本次收盘资料跟踪；风险"
+                + todo.risk()
+                + "项、条件变化"
+                + todo.changed()
+                + "项、待补资料"
+                + todo.data()
+                + "项、待复核"
+                + todo.due()
+                + "项，请到研究计划处理");
+      }
       case FULL_MARKET_ANALYSIS -> {
         var value = fullMarket.observation(date);
         return new StageQuality(
             value != null && "AVAILABLE".equals(value.status())
                 ? DataQualityStatus.AVAILABLE
                 : DataQualityStatus.PARTIAL,
-            value == null ? 0 : value.breadth().valid60(),
-            value == null ? 0 : value.breadth().trading(),
+            value == null || value.breadth() == null ? 0 : value.breadth().valid60(),
+            value == null || value.breadth() == null ? 0 : value.breadth().trading(),
             List.of(),
             "三所同日截面、停牌和同源历史分别验收；缺窗口不形成完整评级");
       }

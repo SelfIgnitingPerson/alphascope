@@ -35,8 +35,10 @@ public class PortfolioController {
    * @return 持仓列表、账户总额及单位
    */
   @GetMapping("/positions")
-  public Result<PositionsView> positions() {
-    return Result.success(service.positionsView());
+  public Result<PositionsView> positions(
+      @org.springframework.web.bind.annotation.RequestParam(required = false)
+          java.time.LocalDate asOf) {
+    return Result.success(asOf == null ? service.positionsView() : service.positionsView(asOf));
   }
 
   /**
@@ -61,7 +63,7 @@ public class PortfolioController {
    */
   @PutMapping("/account")
   public Result<Void> account(@Valid @RequestBody AccountInput input) {
-    service.account(input.totalAssets(), input.asOfDate());
+    service.account(input);
     return Result.success();
   }
 }

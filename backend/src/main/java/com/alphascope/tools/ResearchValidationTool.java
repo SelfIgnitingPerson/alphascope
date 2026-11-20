@@ -279,9 +279,10 @@ public final class ResearchValidationTool {
         text.append("方法：")
             .append(simulation.version())
             .append("。收盘形成条件，次个交易日开盘尝试执行；各段独立起仓。\n\n")
-            .append("| 区间 | 扣费收益 | 最大回撤 | 基准收益 | 卖出次数 | 跳过委托 | 证据结论 |\n")
-            .append("| --- | --- | --- | --- | --- | --- | --- |\n");
+            .append("| 区间 | 扣费收益 | 扣费后已平仓胜率 | 最大回撤 | 基准收益 | 卖出次数 | 跳过委托 | 证据结论 |\n")
+            .append("| --- | --- | --- | --- | --- | --- | --- | --- |\n");
         for (var period : simulation.periods()) {
+          var stats = period.tradeStatistics();
           text.append("| ")
               .append(
                   switch (period.label()) {
@@ -292,6 +293,16 @@ public final class ResearchValidationTool {
                   })
               .append(" | ")
               .append(percent(period.netReturn()))
+              .append(" | ")
+              .append(
+                  stats == null || stats.winRate() == null
+                      ? "—"
+                      : percent(stats.winRate())
+                          + "（"
+                          + stats.winningTrades()
+                          + "/"
+                          + stats.closedTrades()
+                          + "）")
               .append(" | ")
               .append(percent(period.maximumDrawdown()))
               .append(" | ")

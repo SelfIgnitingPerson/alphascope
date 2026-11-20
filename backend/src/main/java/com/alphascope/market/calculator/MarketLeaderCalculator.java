@@ -106,6 +106,7 @@ public final class MarketLeaderCalculator {
         Double close = number(row, "close"), value = number(row, "amount");
         if (row == null
             || !"1".equals(row.path("tradestatus").asText())
+            || row.path("factorUnavailable").asBoolean()
             || close == null
             || close <= 0
             || value == null

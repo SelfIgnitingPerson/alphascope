@@ -17,6 +17,7 @@ import com.alphascope.market.provider.research.BaoStockResearchProvider;
 import com.alphascope.market.provider.research.EastmoneyResearchProvider;
 import com.alphascope.market.provider.research.ResearchDataProvider;
 import com.alphascope.market.provider.research.ResearchDataRouter;
+import com.alphascope.market.provider.research.SinaSnapshotResearchProvider;
 import com.alphascope.market.provider.research.TushareResearchProvider;
 import com.alphascope.market.provider.tushare.TushareClient;
 import com.alphascope.operations.service.SourceLicenseService;
@@ -93,9 +94,19 @@ public class MarketProviderConfig {
       BaoStockClient baoStockClient) {
     List<ResearchDataProvider> channels = new ArrayList<>();
     if (properties.getProvider() != ProviderType.DEMO) {
-      for (ProviderType type : channels(properties)) {
+      var configured = channels(properties);
+      var publicReference =
+          configured.contains(ProviderType.EASTMONEY) || configured.contains(ProviderType.SINA)
+              ? new EastmoneyResearchProvider(clock)
+              : null;
+      for (ProviderType type : configured) {
         if (type == ProviderType.EASTMONEY) {
-          channels.add(new EastmoneyResearchProvider(clock));
+          channels.add(publicReference);
+        }
+        if (type == ProviderType.SINA) {
+          channels.add(
+              new SinaSnapshotResearchProvider(
+                  clock, publicReference, !configured.contains(ProviderType.EASTMONEY)));
         }
         if (type == ProviderType.BAOSTOCK) {
           channels.add(new BaoStockResearchProvider(baoStockClient));

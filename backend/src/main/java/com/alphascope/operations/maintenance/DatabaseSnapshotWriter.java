@@ -131,6 +131,11 @@ final class DatabaseSnapshotWriter {
               "auth_event",
               "source_license",
               "storage_budget",
+              "corporate_action",
+              "investment_thesis",
+              "portfolio_revision",
+              "research_observation",
+              "forward_result",
               "research_plan",
               "research_plan_review",
               "job_attempt_history",
@@ -272,7 +277,8 @@ final class DatabaseSnapshotWriter {
         connection.getMetaData().getColumns(connection.getCatalog(), null, table, "%")) {
       var ordered = new TreeMap<Integer, String>();
       while (rows.next()) {
-        ordered.put(rows.getInt("ORDINAL_POSITION"), rows.getString("COLUMN_NAME"));
+        if (!"YES".equals(rows.getString("IS_GENERATEDCOLUMN")))
+          ordered.put(rows.getInt("ORDINAL_POSITION"), rows.getString("COLUMN_NAME"));
       }
       result.addAll(ordered.values());
     }

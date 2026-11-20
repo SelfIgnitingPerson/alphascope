@@ -288,4 +288,10 @@
         AND (n.updated_at &gt; c.updated_at OR (n.updated_at=c.updated_at AND n.id &gt; c.id)))
     ORDER BY c.trade_date
   </select>
+  <select id="calendarEvidence" resultType="com.alphascope.market.dto.CalendarRevisionDO">
+    SELECT id,trade_date,is_open AS `open`,source,updated_at FROM (
+      SELECT c.*,ROW_NUMBER() OVER(PARTITION BY trade_date ORDER BY updated_at DESC,id DESC) AS rank_no
+      FROM trading_calendar c WHERE trade_date BETWEEN #{start} AND #{end} AND exchange='SSE' AND is_synthetic=0
+    ) ranked WHERE rank_no=1 ORDER BY trade_date
+  </select>
 </mapper>

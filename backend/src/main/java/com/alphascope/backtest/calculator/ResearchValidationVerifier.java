@@ -25,6 +25,7 @@ public final class ResearchValidationVerifier {
   public static ValidationVerification verify(ResearchValidationView report) {
     require(ValidationProtocol.VERSION.equals(report.protocolVersion()), "不支持的验证冻结协议");
     int windows = 0, stocks = 0;
+    var portfolioInputs = new java.util.ArrayList<TechnicalReplayInput>();
     if (report.marketReplay() != null) {
       var market = report.marketReplay();
       hash(market.inputJson(), market.inputSha256(), "市场输入");
@@ -45,6 +46,7 @@ public final class ResearchValidationVerifier {
       hash(replay.signalJson(), replay.signalSha256(), "规则证据");
       hash(Jsons.write(replay.result()), replay.resultSha256(), "统计结果");
       var input = Jsons.read(replay.inputJson(), TechnicalReplayInput.class);
+      if (report.portfolioReplay() != null) portfolioInputs.add(input);
       require(
           Jsons.write(input.definition()).equals(Jsons.write(report.ruleDefinition())),
           "冻结参数与报告声明不一致");
@@ -57,15 +59,36 @@ public final class ResearchValidationVerifier {
           replay.resultSha256(),
           "统计重建");
       if (replay.strategy() != null) {
-        require(
-            StrategyReplayCalculator.VERSION.equals(replay.strategy().version()), "不支持的策略执行扩展版本");
         hash(Jsons.write(replay.strategy()), replay.strategySha256(), "策略结果");
         hash(
-            Jsons.write(StrategyReplayCalculator.evaluate(input)),
+            Jsons.write(StrategyReplayCalculator.evaluate(input, replay.strategy().version())),
             replay.strategySha256(),
             "策略执行复算");
       }
       stocks++;
+    }
+    var portfolio = report.portfolioReplay();
+    if (portfolio != null) {
+      var settings = portfolio.settings();
+      var symbols =
+          report.stocks().stream()
+              .map(ResearchValidationView.StockValidation::symbol)
+              .sorted()
+              .toList();
+      require(
+          settings.start().equals(report.start())
+              && settings.end().equals(report.end())
+              && symbols.equals(settings.symbols()),
+          "共用资金冻结范围与报告不一致");
+      String prefix = Jsons.write(settings) + "\n";
+      hash(prefix + Jsons.write(portfolio.simulation()), portfolio.sha256(), "共用资金结果");
+      hash(
+          prefix
+              + Jsons.write(
+                  PortfolioReplayCalculator.evaluate(
+                      settings, portfolioInputs, portfolio.simulation().version())),
+          portfolio.sha256(),
+          "共用资金复算");
     }
     return new ValidationVerification(true, windows, stocks, TechnicalEvidenceCalculator.VERSION);
   }

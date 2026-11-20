@@ -115,6 +115,106 @@ class PipelineIntegrationTest {
   @Autowired MarketObservationMapper observationMapper;
   @Autowired MarketBreadthMapper breadthMapper;
 
+  @Test
+  void importedFullMarketRemainsVerifiableAfterMysqlAndRebuildsWithoutProviderRequests() {
+    var day = LocalDate.of(2026, 10, 28);
+    var members =
+        java.util.stream.IntStream.range(0, 4000)
+            .mapToObj(
+                index -> {
+                  String symbol =
+                      index < 2000
+                          ? (600000 + index) + ".SH"
+                          : index < 3900
+                              ? String.format(java.util.Locale.ROOT, "%06d.SZ", index - 2000)
+                              : (920000 + index - 3900) + ".BJ";
+                  return new com.alphascope.market.dto.HistoricalFullMarketArchive.Member(
+                      symbol, false, null);
+                })
+            .toList();
+    var prices =
+        members.stream()
+            .map(
+                member ->
+                    new com.alphascope.market.dto.HistoricalFullMarketArchive.Quote(
+                        member.symbol(),
+                        BigDecimal.TEN,
+                        BigDecimal.ONE,
+                        BigDecimal.valueOf(100),
+                        BigDecimal.valueOf(2)))
+            .toList();
+    var archive =
+        new com.alphascope.market.dto.HistoricalFullMarketArchive(
+            day,
+            "BIGQUANT",
+            day.plusDays(1).atTime(9, 0).atOffset(java.time.ZoneOffset.ofHours(8)),
+            Map.of("SSE", 2000, "SZSE", 1900, "BSE", 100),
+            Map.of(
+                "SSE",
+                "https://www.sse.com.cn/fixture",
+                "SZSE",
+                "https://www.szse.cn/fixture",
+                "BSE",
+                "https://www.bse.cn/fixture"),
+            members,
+            prices);
+    var snapshot =
+        com.alphascope.market.calculator.HistoricalFullMarketAssembler.assemble(
+            archive, day.plusDays(1).atTime(10, 0));
+    var query = ResearchSnapshotQuery.builder().date(day).source("BIGQUANT").loadRaw(true).build();
+    var legacy =
+        com.alphascope.common.util.Jsons.read(
+            snapshot.getRawJson(), com.fasterxml.jackson.databind.node.ObjectNode.class);
+    ((com.fasterxml.jackson.databind.node.ObjectNode) legacy.path("rosterEvidence"))
+        .remove("rosterSources");
+    String legacyRaw = legacy.toString();
+    var old =
+        com.alphascope.market.entity.MarketBreadthSnapshot.builder()
+            .tradeDate(day)
+            .universeScope("FULL_A")
+            .source("BIGQUANT")
+            .contentHash(com.alphascope.common.util.Jsons.hash(legacyRaw))
+            .metricsJson(snapshot.getMetricsJson())
+            .rawJson(legacyRaw)
+            .fetchedAt(snapshot.getFetchedAt())
+            .build();
+    breadthMapper.save(old);
+    assertNull(breadthMapper.fullForDate(query));
+    assertFalse(
+        com.alphascope.market.calculator.UniverseCoverageCalculator.calculate(old)
+            .coverage()
+            .rosterVerified());
+    breadthMapper.save(snapshot);
+    var saved = breadthMapper.fullForDate(query);
+    breadthMapper.save(snapshot);
+    assertEquals(saved.getId(), breadthMapper.fullForDate(query).getId());
+    assertTrue(
+        com.alphascope.market.calculator.UniverseCoverageCalculator.calculate(saved)
+            .coverage()
+            .rosterVerified());
+    var real = org.mockito.Mockito.mock(MarketService.class);
+    org.mockito.Mockito.when(real.expectedDates(org.mockito.ArgumentMatchers.any()))
+        .thenReturn(Set.of(day));
+    var router =
+        org.mockito.Mockito.mock(com.alphascope.market.provider.research.ResearchDataRouter.class);
+    var full =
+        new com.alphascope.market.service.impl.FullMarketServiceImpl(
+            null,
+            real,
+            router,
+            breadthMapper,
+            observationMapper,
+            java.time.Clock.systemUTC(),
+            json);
+    full.rebuildImported(day);
+    var observation = full.observation(day);
+    assertEquals("FULL_A", observation.scope());
+    assertEquals(4000, observation.breadth().trading());
+    assertTrue(observation.inputSources().contains("BIGQUANT"));
+    assertNull(observation.breadth().ratio60());
+    org.mockito.Mockito.verifyNoInteractions(router);
+  }
+
   @Autowired FinancialWriteService manualFinancials;
   @Autowired EvidenceService evidenceService;
 

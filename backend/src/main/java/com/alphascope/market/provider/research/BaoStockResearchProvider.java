@@ -8,6 +8,8 @@ import com.alphascope.market.dto.ResearchMarketSnapshot;
 import com.alphascope.market.provider.MarketCapability;
 import com.alphascope.market.provider.baostock.BaoStockClient;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -69,6 +71,12 @@ public class BaoStockResearchProvider implements ResearchDataProvider {
                 "1990-01-01",
                 request.end().toString()));
     return new ResearchFactorWindow(code(), LocalDate.of(1990, 1, 1), request.end(), raw, raw);
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public List<Map<String, String>> dailyFactorEvents(LocalDate date) {
+    return client.dailyAdjustments(date);
   }
 
   /** {@inheritDoc} */

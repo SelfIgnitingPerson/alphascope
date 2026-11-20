@@ -125,6 +125,15 @@ public final class BaoStockClient implements AutoCloseable {
 
   /** 官方98/99报文为单日全量快照，不带分页参数，字段与记录位置也不同。 */
   public synchronized List<Map<String, String>> dailyStocks(LocalDate date) {
+    return dailyReport("98", "query_daily_history_k_AStock", date);
+  }
+
+  /** 获取供应商指定日的全量除权事件，成功的空数组表示当天无事件。 */
+  public synchronized List<Map<String, String>> dailyAdjustments(LocalDate date) {
+    return dailyReport("9C", "query_daily_adjust_factor", date);
+  }
+
+  private List<Map<String, String>> dailyReport(String type, String method, LocalDate date) {
     if (accessGuard != null) {
       accessGuard.check();
     }
@@ -138,10 +147,7 @@ public final class BaoStockClient implements AutoCloseable {
           input = new BufferedInputStream(socket.getInputStream());
           check(exchange("00", String.join(SEP, "login", "anonymous", "123456", "0")));
         }
-        var fields =
-            exchange(
-                "98",
-                String.join(SEP, "query_daily_history_k_AStock", "anonymous", date.toString()));
+        var fields = exchange(type, String.join(SEP, method, "anonymous", date.toString()));
         check(fields);
         if (fields.length < 6) {
           throw new IOException("INVALID_RESPONSE_FIELDS");

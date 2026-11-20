@@ -24,6 +24,13 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface MarketMapper {
+  /**
+   * 读取按日期最近保存的真实日历行，保留来源和原记录时刻。
+   *
+   * @param query 只读日期范围
+   * @return 含开闭市日的证据
+   */
+  List<CalendarRevisionDO> calendarEvidence(TradingDatesQuery query);
 
   /**
    * 按统一证券代码读取主数据业务字段和内部主键。

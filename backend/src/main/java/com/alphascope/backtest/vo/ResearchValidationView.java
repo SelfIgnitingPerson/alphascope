@@ -1,10 +1,12 @@
 package com.alphascope.backtest.vo;
 
 import com.alphascope.backtest.calculator.MarketScoreValidationCalculator;
+import com.alphascope.backtest.dto.PortfolioReplaySettings;
 import com.alphascope.backtest.dto.ResearchValidationRequest;
 import com.alphascope.market.vo.ScopedScoreView;
 import com.alphascope.market.vo.UniverseCoverageView;
 import com.alphascope.signal.dto.RuleDefinitionSnapshot;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -42,7 +44,17 @@ public record ResearchValidationView(
     /** 真实不足及为什么不能直接判为有效。 */
     List<String> blockers,
     /** 解释回顾样本、交易成本和样本选择等局限。 */
-    List<String> limitations) {
+    List<String> limitations,
+    /** 共用资金口径，按同一批证券的冻结输入复算。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL) PortfolioReplay portfolioReplay) {
+
+  /**
+   * 共用资金模拟的冻结参数与结果指纹。
+   *
+   * @author chenxuefeng
+   */
+  public record PortfolioReplay(
+      PortfolioReplaySettings settings, StrategySimulation simulation, String sha256) {}
 
   /**
    * 全A评分时间序列检验的冻结输入和输出。

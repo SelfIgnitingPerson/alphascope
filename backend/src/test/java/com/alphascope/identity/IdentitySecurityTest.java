@@ -25,6 +25,29 @@ import org.springframework.mock.web.MockHttpServletResponse;
  */
 class IdentitySecurityTest {
   @Test
+  void localProxyRequestUsesReservedWorkspaceAndReleasesIdentityAfterTheRequest() throws Exception {
+    var auth = mock(AuthService.class);
+    var filter = new RequestFilter(new AccessProperties(), auth);
+    var request = new MockHttpServletRequest("GET", "/api/v1/watchlist");
+    request.setRemoteAddr("192.0.2.1");
+    request.addHeader("X-Forwarded-For", "198.51.100.1");
+    request.addHeader("Forwarded", "for=198.51.100.1;proto=https");
+    var response = new MockHttpServletResponse();
+    var calls = new AtomicInteger();
+    filter.doFilter(
+        request,
+        response,
+        (r, s) -> {
+          assertEquals(1, TenantContext.id());
+          assertEquals("ADMIN", TenantContext.user().role());
+          calls.incrementAndGet();
+        });
+    assertEquals(200, response.getStatus());
+    assertEquals(1, calls.get());
+    assertNull(TenantContext.user());
+  }
+
+  @Test
   void passwordHashesHaveIndependentSaltsAndRejectMalformedOrWrongValues() {
     var hasher = new PasswordHasher();
     String first = hasher.hash("test-only-long-password"),
@@ -58,6 +81,7 @@ class IdentitySecurityTest {
     var chain = new AtomicInteger();
     var request = new MockHttpServletRequest("GET", "/api/v1/watchlist");
     request.addHeader("X-Forwarded-For", "127.0.0.1");
+    request.addHeader("Forwarded", "for=127.0.0.1;proto=https");
     var response = new MockHttpServletResponse();
     filter.doFilter(request, response, (r, s) -> chain.incrementAndGet());
     assertEquals(401, response.getStatus());

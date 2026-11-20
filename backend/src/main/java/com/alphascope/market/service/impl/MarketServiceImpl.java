@@ -590,4 +590,23 @@ public class MarketServiceImpl implements MarketService {
         .map(row -> row.getTradeDate())
         .collect(Collectors.toCollection(TreeSet::new));
   }
+
+  /** {@inheritDoc} */
+  @Override
+  public java.util.List<com.alphascope.market.dto.CalendarRevisionDO> calendarEvidence(
+      DateRangeRequest request) {
+    DateRangeValidator.requireValid(request.getStart(), request.getEnd());
+    var rows =
+        mapper.calendarEvidence(
+            TradingDatesQuery.builder().start(request.getStart()).end(request.getEnd()).build());
+    if (rows.size() != ChronoUnit.DAYS.between(request.getStart(), request.getEnd()) + 1
+        || rows.stream()
+            .anyMatch(
+                r ->
+                    r.getOpen() == null
+                        || r.getSource() == null
+                        || java.util.Set.of("NONE", "UNKNOWN", "DEMO").contains(r.getSource())))
+      throw new IllegalStateException("前瞻窗口日历日期、开闭市状态或实际来源不完整");
+    return rows;
+  }
 }

@@ -19,10 +19,10 @@
   <insert id="insert">
     <![CDATA[
     INSERT INTO financial_report(instrument_id, period_end, report_type, published_at, available_at,
-      publication_precision, vendor_updated_at, fetched_at, content_hash, source_url, raw_json, version,
+      publication_precision, vendor_updated_at, fetched_at, content_hash, source_url, raw_json, raw_payload, version,
       revenue, net_profit, operating_cashflow, gross_margin, revenue_yoy, profit_yoy, source)
     SELECT #{id}, #{s.periodEnd}, #{s.reportType}, #{s.publishedAt}, #{s.availableAt}, 'DAY', #{s.vendorUpdatedAt},
-      #{fetched}, #{s.hash}, #{s.sourceUrl}, #{s.rawJson}, COALESCE(MAX(version), 0)+1, #{s.revenue},
+      #{fetched}, #{s.hash}, #{s.sourceUrl}, #{s.rawJson}, #{s.rawJson}, COALESCE(MAX(version), 0)+1, #{s.revenue},
       #{s.netProfit}, #{s.operatingCashflow}, #{s.grossMargin}, #{s.revenueYoy}, #{s.profitYoy},
       'EASTMONEY_FREE'
     FROM financial_report

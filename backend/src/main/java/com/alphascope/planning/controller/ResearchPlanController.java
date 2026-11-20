@@ -32,6 +32,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class ResearchPlanController {
   private final ResearchPlanService service;
 
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.alphascope.planning.service.PlanFollowupService followups;
+
   public ResearchPlanController(ResearchPlanService service) {
     this.service = service;
   }
@@ -94,6 +97,44 @@ public class ResearchPlanController {
   public Result<PageResponse<PlanReviewView>> reviews(
       @PathVariable long id, @Valid @ModelAttribute @ParameterObject PageRequest page) {
     return Result.success(service.reviews(id, page));
+  }
+
+  /**
+   * 确认已阅读所选日期前的最近复核，原证据保持不变。
+   *
+   * @param id 当前用户计划
+   * @param input 明确的研究日期
+   * @return 统一成功响应
+   */
+  @PostMapping("/{id}/acknowledge")
+  public Result<Void> acknowledge(
+      @PathVariable long id, @Valid @RequestBody PlanReviewInput input) {
+    service.acknowledge(id, input);
+    return Result.success(null);
+  }
+
+  /**
+   * 读取当前账号全部跟踪计划的优先待办，刷新不追加证据。
+   *
+   * @param asOf 截止业务日
+   * @return 全局待办汇总
+   */
+  @GetMapping("/todos")
+  public Result<com.alphascope.planning.vo.PlanTodoView> todos(
+      @org.springframework.web.bind.annotation.RequestParam java.time.LocalDate asOf) {
+    return Result.success(followups.todos(asOf));
+  }
+
+  /**
+   * 批量复核跟踪中计划，单项失败不会遮住其他计划。
+   *
+   * @param input 明确的收盘研究日
+   * @return 完成数量与待处理原因
+   */
+  @PostMapping("/review-due")
+  public Result<com.alphascope.planning.vo.PlanFollowupView> followup(
+      @Valid @RequestBody PlanReviewInput input) {
+    return Result.success(followups.review(input.date()));
   }
 
   /**

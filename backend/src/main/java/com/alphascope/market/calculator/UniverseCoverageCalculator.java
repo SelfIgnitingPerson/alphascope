@@ -81,6 +81,20 @@ public final class UniverseCoverageCalculator {
       if (observed.size() != codes.size())
         missing.add("清单中" + (codes.size() - observed.size()) + "只交易证券缺少截面");
       JsonNode proof = raw.path("universeProof");
+      if (HistoricalFullMarketAssembler.imported(row.getSource())
+          && !raw.path("rosterEvidence").path("rosterSources").isObject()) {
+        missing.add("历史导入档案缺少独立交易所名册证据，需按现行口径重新核验");
+      }
+      if (HistoricalFullMarketAssembler.PUBLIC_HISTORY_SOURCE.equals(row.getSource())) {
+        var comparison = raw.path("rosterEvidence").path("comparison");
+        if (!row.getTradeDate().toString().equals(comparison.path("date").asText())
+            || !comparison.path("excludedInstruments").isObject()
+            || comparison.path("shSzCount").asInt(-1)
+                    - comparison.path("excludedInstruments").size()
+                != exchanges.getOrDefault("SSE", 0) + exchanges.getOrDefault("SZSE", 0)
+            || comparison.path("bseCount").asInt(-1) != exchanges.getOrDefault("BSE", 0))
+          missing.add("历史重建缺少匹配的当日独立市场统计");
+      }
       if (!"FULL_A".equals(row.getUniverseScope()) || !proof.isObject()) {
         missing.add("没有完整全A清单证明；当前实际范围为" + row.getUniverseScope());
       } else {

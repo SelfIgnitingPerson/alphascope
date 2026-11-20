@@ -49,6 +49,7 @@ export interface JobSubmitInput {
 }
 /** 人工持仓记录；数量单位股、成本单位人民币元，日期为当前资产业务日期。 */
 export interface PositionInput {
+  riskGroup?: string;
   /** 非负持仓股数。 */
   quantity: number;
   /** 非负的人民币每股成本。 */

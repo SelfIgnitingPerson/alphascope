@@ -10,14 +10,24 @@ export const addWatch = (symbol: string) =>
 export const removeWatch = (symbol: string) =>
   api<null>(`/watchlist/${encodeURIComponent(symbol)}`, write('DELETE'));
 /** 读取当前手工持仓和资产总额，数据未知时不推算集中度。 */
-export const getPositions = (signal?: AbortSignal) =>
-  api<PositionsResponse>('/portfolio/positions', { signal });
+export const getPositions = (signal?: AbortSignal, asOf?: string) =>
+  api<PositionsResponse>(`/portfolio/positions${asOf ? '?asOf=' + encodeURIComponent(asOf) : ''}`, {
+    signal,
+  });
 /** 登记当前人工持仓，不代表向券商下单。 */
 export const savePosition = (symbol: string, input: PositionInput) =>
   api<null>(`/portfolio/positions/${encodeURIComponent(symbol)}`, write('PUT', input));
 /** 登记资产总额的业务日期及金额，单位人民币元。 */
-export const saveAccount = (totalAssets: number, asOfDate: string) =>
-  api<null>('/portfolio/account', write('PUT', { totalAssets, asOfDate }));
+export const saveAccount = (input: {
+  totalAssets: number;
+  asOfDate: string;
+  riskBudget?: number;
+  liquidityReserve?: number;
+  fundsNeededOn?: string | null;
+  fundsPurpose?: string;
+  cashBalance?: number;
+  positionsComplete?: boolean;
+}) => api<null>('/portfolio/account', write('PUT', input));
 
 export interface InstrumentCandidate {
   symbol: string;

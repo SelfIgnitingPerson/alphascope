@@ -16,6 +16,13 @@ export interface HoldingResearch {
   notes: string[];
   /** 当前服务端观察优先级；旧冻结记录不补造。 */
   priorities?: ResearchPriority[];
+  mediumTrendCandidate?: {
+    dataAvailable: boolean;
+    trendMatched: boolean;
+    ma60: number | null;
+    stopReference: number | null;
+    exit: boolean;
+  };
 }
 /** 每个持有周期独立判断，不从短期方案外推长期价值。 */
 export interface HoldingHorizon {

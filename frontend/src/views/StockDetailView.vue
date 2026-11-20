@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import BusinessEvidencePanel from '../components/research/BusinessEvidencePanel.vue';
+import ValuationAuditPanel from '../components/research/ValuationAuditPanel.vue';
+import InvestmentEvidencePanel from '../components/research/InvestmentEvidencePanel.vue';
 import HoldingResearchPanel from '../components/research/HoldingResearchPanel.vue';
 import FinancialResearchPanel from '../components/research/FinancialResearchPanel.vue';
 import SectionTabs from '../components/common/SectionTabs.vue';
@@ -43,11 +46,13 @@ const financials = useResource((signal) => getFinancials(props.symbol, props.dat
 const signals = useResource((signal) => getSignals(props.symbol, props.date, signal), query);
 const indicatorColumns = ['ma5', 'ma10', 'ma20', 'ma60', 'atr14'] as const;
 const activeTab = ref('plans');
+const evidenceRefresh = ref(0);
 const tabs = [
   { id: 'plans', label: '持有与买卖计划' },
   { id: 'price', label: '价格与指标' },
   { id: 'rules', label: '风险规则' },
   { id: 'financials', label: '已披露财报' },
+  { id: 'evidence', label: '估值与公司行动' },
 ];
 const signalDate = ref('');
 watch(
@@ -131,7 +136,7 @@ const indicator = computed(() => indicators.data.value?.at(-1));
               :symbol="symbol"
               :initial-horizon="initialHorizon"
               :date="date"
-              :refresh-token="refreshToken"
+              :refresh-token="refreshToken + evidenceRefresh"
             />
           </template>
           <template #price>
@@ -344,7 +349,25 @@ const indicator = computed(() => indicators.data.value?.at(-1));
               </AsyncState>
             </SectionCard>
           </template>
+          <template #evidence>
+            <ValuationAuditPanel
+              :symbol="symbol"
+              :date="date"
+              :refresh-token="refreshToken + evidenceRefresh"
+            />
+            <InvestmentEvidencePanel
+              :symbol="symbol"
+              :date="date"
+              :refresh-token="refreshToken"
+              @saved="evidenceRefresh++"
+            />
+          </template>
           <template #financials>
+            <BusinessEvidencePanel
+              :symbol="symbol"
+              :date="date"
+              :refresh-token="refreshToken + evidenceRefresh"
+            />
             <SectionCard
               title="财报对比与经营观察"
               description="图表金额为亿元，原始表为人民币元；只读取截至所选研究日可用的披露版本。"

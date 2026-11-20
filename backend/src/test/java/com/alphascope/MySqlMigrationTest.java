@@ -44,7 +44,7 @@ class MySqlMigrationTest {
           statement.executeQuery(
               "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name<>'flyway_schema_history'")) {
         rows.next();
-        assertEquals(46, rows.getInt(1));
+        assertEquals(51, rows.getInt(1));
       }
       // 两个来源的同日行情、同源高精度因子，以及覆盖大JSON查询的最终索引直接存在于基线。
       try (var rows =

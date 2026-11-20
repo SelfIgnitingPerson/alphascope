@@ -167,6 +167,45 @@ class SourcePermissionTest {
   }
 
   @Test
+  void personalValuationStillRequiresItsActualFinancialSourceLicense() throws Exception {
+    var service = mock(com.alphascope.fundamental.service.InvestmentEvidenceService.class);
+    var thesis =
+        new com.alphascope.fundamental.dto.ValuationThesisInput(
+            "600000.SH",
+            LocalDate.of(2026, 11, 17),
+            LocalDate.of(2026, 12, 17),
+            BigDecimal.ONE,
+            BigDecimal.valueOf(2),
+            BigDecimal.TEN,
+            BigDecimal.valueOf(20),
+            BigDecimal.valueOf(.2),
+            true,
+            "公开依据核对EPS和股本，以及估值倍数",
+            "盈利质量恶化后撤销本情景",
+            "https://example.test/report",
+            "EASTMONEY_FINANCIAL");
+    when(service.thesis(any())).thenReturn(thesis);
+    var mvc =
+        MockMvcBuilders.standaloneSetup(
+                new com.alphascope.fundamental.controller.InvestmentEvidenceController(service))
+            .setControllerAdvice(
+                new ApiExceptionHandler(),
+                new ResearchResponseAdvice(policy(List.of(grant("SINA", true)))))
+            .build();
+    mvc.perform(get("/api/v1/stocks/600000.SH/valuation-thesis").param("asOf", "2026-11-17"))
+        .andExpect(status().isServiceUnavailable());
+    mvc =
+        MockMvcBuilders.standaloneSetup(
+                new com.alphascope.fundamental.controller.InvestmentEvidenceController(service))
+            .setControllerAdvice(
+                new ApiExceptionHandler(),
+                new ResearchResponseAdvice(policy(List.of(grant("EASTMONEY_FINANCIAL", true)))))
+            .build();
+    mvc.perform(get("/api/v1/stocks/600000.SH/valuation-thesis").param("asOf", "2026-11-17"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
   void allControllersDeclareDataBoundary() throws Exception {
     var scanner =
         new org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider(
@@ -181,5 +220,61 @@ class SourcePermissionTest {
               || type.isAnnotationPresent(OperationalData.class),
           type.getName() + "未声明数据边界");
     }
+  }
+
+  @Test
+  void businessRatiosKeepActualFinancialPermissionAndNoDataRemainsReadable() throws Exception {
+    var service = mock(com.alphascope.intelligence.service.BusinessEvidenceService.class);
+    var date = LocalDate.of(2026, 11, 17);
+    var result =
+        new com.alphascope.intelligence.vo.BusinessEvidenceView(
+            date,
+            date,
+            "EASTMONEY_FINANCIAL",
+            "https://example.test/financial",
+            .5,
+            null,
+            null,
+            List.of("现金兑现需核对"),
+            List.of("缺同行"),
+            "UNVERIFIED",
+            Set.of("EASTMONEY_FINANCIAL"),
+            List.of());
+    when(service.read(any())).thenReturn(result);
+    for (boolean correct : List.of(false, true)) {
+      var mvc =
+          MockMvcBuilders.standaloneSetup(
+                  new com.alphascope.intelligence.controller.BusinessEvidenceController(service))
+              .setControllerAdvice(
+                  new ApiExceptionHandler(),
+                  new ResearchResponseAdvice(
+                      policy(List.of(grant(correct ? "EASTMONEY_FINANCIAL" : "SINA", true)))))
+              .build();
+      mvc.perform(get("/api/v1/instruments/002837.SZ/business-evidence?asOf=2026-11-17"))
+          .andExpect(correct ? status().isOk() : status().isServiceUnavailable());
+    }
+    when(service.read(any()))
+        .thenReturn(
+            new com.alphascope.intelligence.vo.BusinessEvidenceView(
+                date,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of("缺少财报"),
+                "UNVERIFIED",
+                Set.of(),
+                List.of()));
+    var mvc =
+        MockMvcBuilders.standaloneSetup(
+                new com.alphascope.intelligence.controller.BusinessEvidenceController(service))
+            .setControllerAdvice(
+                new ApiExceptionHandler(), new ResearchResponseAdvice(policy(List.of())))
+            .build();
+    mvc.perform(get("/api/v1/instruments/002837.SZ/business-evidence?asOf=2026-11-17"))
+        .andExpect(status().isOk());
   }
 }

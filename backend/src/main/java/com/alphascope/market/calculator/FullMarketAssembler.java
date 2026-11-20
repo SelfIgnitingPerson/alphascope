@@ -33,9 +33,17 @@ public final class FullMarketAssembler {
         || !snapshot.date().equals(roster.businessDate()))
       throw new IllegalStateException("FULL_A_ROSTER_DATE_MISSING");
     var raw = Jsons.read(snapshot.upstreamJson(), JsonNode.class);
-    int expected = raw.path("rosterCount").asInt(-1);
-    if (!"EASTMONEY".equals(snapshot.source()) || expected != snapshot.universe().size())
-      throw new IllegalStateException("FULL_A_ROSTER_PROOF_MISSING");
+    boolean rosterProof =
+        switch (snapshot.source()) {
+          case "EASTMONEY", "SINA" ->
+              raw.path("rosterCount").asInt(-1) == snapshot.universe().size();
+          case "TUSHARE" ->
+              raw.path("basic").isArray()
+                  && raw.path("daily").isArray()
+                  && raw.path("suspended").isArray();
+          default -> false;
+        };
+    if (!rosterProof) throw new IllegalStateException("FULL_A_ROSTER_PROOF_MISSING");
     var codes = new TreeSet<String>();
     var bse = new TreeSet<String>();
     var exchanges = new TreeSet<String>();
@@ -62,6 +70,11 @@ public final class FullMarketAssembler {
                 snapshot.daily(),
                 "upstreamJson",
                 snapshot.upstreamJson(),
+                "inputSources",
+                switch (snapshot.source()) {
+                  case "TUSHARE" -> java.util.List.of("SINA", "TUSHARE");
+                  default -> java.util.List.of("EASTMONEY", "SINA");
+                },
                 "rosterEvidence",
                 roster.summary(),
                 "universeProof",

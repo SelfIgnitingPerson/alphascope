@@ -18,6 +18,15 @@ import lombok.NoArgsConstructor;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class PositionDO {
+  /** 人工相关风险标签，可重叠，不是官方行业。 */
+  private String riskGroup;
+
+  /** 历史账本证明确实已于研究时点登记；仅内部计算使用。 */
+  @com.fasterxml.jackson.annotation.JsonIgnore private boolean historyVerified;
+
+  /** 本版本实际记录时刻，旧行缺省，不证明历史可得性。 */
+  @com.fasterxml.jackson.annotation.JsonIgnore private java.time.LocalDateTime recordedAt;
+
   /** 持仓标的代码。 */
   private String symbol;
 

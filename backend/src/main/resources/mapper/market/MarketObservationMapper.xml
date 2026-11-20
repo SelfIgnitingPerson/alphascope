@@ -56,6 +56,6 @@
     VALUES(#{tradeDate}, COALESCE(#{universeScope},'SH_SZ_A'), COALESCE(#{modelVersion},'SH_SZ_OBSERVATION_V1'), #{contentHash}, #{analysisJson}, #{evidenceJson}, #{fetchedAt})
     ]]>
   </insert>
-  <select id="fullForDate" resultType="com.alphascope.market.entity.MarketObservationSnapshot">SELECT id,trade_date,universe_scope,model_version,content_hash,analysis_json,evidence_json,fetched_at FROM market_observation_snapshot WHERE trade_date=#{date} AND universe_scope='FULL_A' AND model_version='FULL_A_OBSERVATION_V1' ORDER BY id DESC LIMIT 1</select>
+  <select id="fullForDate" resultType="com.alphascope.market.entity.MarketObservationSnapshot">SELECT id,trade_date,universe_scope,model_version,content_hash,analysis_json,evidence_json,fetched_at FROM market_observation_snapshot WHERE id=(SELECT MAX(id) FROM market_observation_snapshot WHERE trade_date=#{date} AND universe_scope='FULL_A' AND model_version='FULL_A_OBSERVATION_V1')</select>
   <select id="factorsForWindow" resultType="com.alphascope.market.entity.MarketFactorSnapshot">SELECT id,symbol,source,verified_through,content_hash,raw_json,fetched_at,last_verified_at FROM market_factor_snapshot WHERE source=#{source} AND verified_through>=#{end} AND (source='BAOSTOCK' OR STR_TO_DATE(JSON_UNQUOTE(JSON_EXTRACT(raw_json,'$.coverageFrom')),'%Y-%m-%d') &lt;= #{start}) ORDER BY symbol,verified_through DESC,id DESC</select>
 </mapper>

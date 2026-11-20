@@ -47,6 +47,12 @@ public class TushareResearchProvider implements ResearchDataProvider {
 
   /** {@inheritDoc} */
   @Override
+  public boolean fullMarketSnapshots() {
+    return true;
+  }
+
+  /** {@inheritDoc} */
+  @Override
   public ResearchMarketSnapshot snapshot(LocalDate date) {
     String day = date.format(DateTimeFormatter.BASIC_ISO_DATE);
     if (date.isBefore(LocalDate.of(2016, 1, 1))) {
@@ -91,7 +97,7 @@ public class TushareResearchProvider implements ResearchDataProvider {
     List<Map<String, String>> universe = new ArrayList<>();
     for (var row : basic) {
       String code = internal(row.get("ts_code"));
-      if (!MarketBreadthCalculator.stock(code)) {
+      if (!MarketBreadthCalculator.stock(code, "FULL_A")) {
         continue;
       }
       if (!date.equals(parse(row.get("trade_date")))) {
@@ -117,7 +123,7 @@ public class TushareResearchProvider implements ResearchDataProvider {
     List<Map<String, String>> normalized = new ArrayList<>();
     for (var row : daily) {
       String code = internal(row.get("ts_code"));
-      if (!MarketBreadthCalculator.stock(code)) {
+      if (!MarketBreadthCalculator.stock(code, "FULL_A")) {
         continue;
       }
       normalized.add(
@@ -212,14 +218,14 @@ public class TushareResearchProvider implements ResearchDataProvider {
   }
 
   private static String internal(String value) {
-    if (value == null || !value.matches("\\d{6}\\.(SH|SZ)")) {
+    if (value == null || !value.matches("\\d{6}\\.(SH|SZ|BJ)")) {
       return "";
     }
     return value.substring(7).toLowerCase(Locale.ROOT) + "." + value.substring(0, 6);
   }
 
   private static String external(String value) {
-    if (value == null || !value.matches("(?:sh|sz)\\.\\d{6}")) {
+    if (value == null || !value.matches("(?:sh|sz|bj)\\.\\d{6}")) {
       throw new IllegalArgumentException("证券代码格式无效");
     }
     return value.substring(3) + "." + value.substring(0, 2).toUpperCase(Locale.ROOT);

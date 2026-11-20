@@ -53,7 +53,16 @@ class DatabaseMaintenanceTest {
       statement.execute("DROP TABLE validation_experiment");
       statement.execute("DROP TABLE research_validation_task");
       statement.execute("DROP TABLE signal_revision");
+      statement.execute("DROP TABLE forward_result");
+      statement.execute("DROP TABLE research_observation");
+      statement.execute("DROP TABLE portfolio_revision");
+      statement.execute("ALTER TABLE portfolio_position DROP COLUMN risk_group");
+      statement.execute("ALTER TABLE financial_report DROP COLUMN raw_payload");
+      statement.execute(
+          "ALTER TABLE portfolio_account DROP COLUMN cash_balance, DROP COLUMN positions_complete");
       statement.execute("ALTER TABLE market_data_revision DROP COLUMN recorded_at");
+      statement.execute(
+          "ALTER TABLE portfolio_account DROP COLUMN risk_budget, DROP COLUMN liquidity_reserve, DROP COLUMN funds_needed_on, DROP COLUMN funds_purpose");
       statement.execute("ALTER TABLE job_execution DROP COLUMN data_status");
       statement.execute("ALTER TABLE job_stage DROP COLUMN data_status, DROP COLUMN details_json");
       statement.execute(
@@ -80,7 +89,7 @@ class DatabaseMaintenanceTest {
     var maintenance = new DatabaseMaintenance(source, root, Clock.systemUTC());
     var result = maintenance.backupAndVerify(14);
     assertTrue(result.verified());
-    assertEquals(45, result.tables());
+    assertEquals(47, result.tables());
     try (var input =
         new GZIPInputStream(
             Files.newInputStream(root.resolve(".runtime/backups").resolve(result.fileName())))) {
@@ -106,6 +115,13 @@ class DatabaseMaintenanceTest {
             root.resolve(".runtime/backups").resolve(result.fileName())));
     assertTrue(maintenance.upgradeSchema() >= 9);
     assertEquals(0, maintenance.upgradeSchema(), "重复执行不能继续产生DDL");
+    try (var connection = source.getConnection();
+        var columns =
+            connection
+                .getMetaData()
+                .getColumns(connection.getCatalog(), null, "portfolio_account", "risk_budget")) {
+      assertTrue(columns.next(), "旧库必须真实新增用款字段，不能只更新基线记录");
+    }
     Path direct = root.resolve("direct-no-backup");
     Path directBaseline =
         direct.resolve("backend/src/main/resources/db/migration/V1__baseline.sql");

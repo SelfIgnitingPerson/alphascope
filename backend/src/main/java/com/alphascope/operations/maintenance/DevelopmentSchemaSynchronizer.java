@@ -130,7 +130,18 @@ final class DevelopmentSchemaSynchronizer {
               new String[] {"job_execution", "data_status"},
               new String[] {"job_stage", "data_status"},
               new String[] {"job_stage", "details_json"},
-              new String[] {"market_data_revision", "recorded_at"})) {
+              new String[] {"market_data_revision", "recorded_at"},
+              new String[] {"research_plan", "research_date"},
+              new String[] {"research_plan", "acknowledged_review_hash"},
+              new String[] {"research_plan_review", "review_date"},
+              new String[] {"portfolio_account", "risk_budget"},
+              new String[] {"portfolio_account", "cash_balance"},
+              new String[] {"portfolio_account", "positions_complete"},
+              new String[] {"portfolio_position", "risk_group"},
+              new String[] {"financial_report", "raw_payload"},
+              new String[] {"portfolio_account", "liquidity_reserve"},
+              new String[] {"portfolio_account", "funds_needed_on"},
+              new String[] {"portfolio_account", "funds_purpose"})) {
         try (var present =
             connection
                 .getMetaData()
@@ -183,6 +194,11 @@ final class DevelopmentSchemaSynchronizer {
               "storage_budget",
               "theme_leader_revision",
               "market_universe_snapshot",
+              "corporate_action",
+              "investment_thesis",
+              "portfolio_revision",
+              "research_observation",
+              "forward_result",
               "research_plan",
               "research_plan_review",
               "job_attempt_history",
@@ -208,6 +224,42 @@ final class DevelopmentSchemaSynchronizer {
         }
       }
       changed += isolatePrivateTables(connection, baseline);
+      for (var declaration :
+          List.of(
+              new String[] {
+                "research_plan",
+                "uk_plan_evidence",
+                "UNIQUE KEY uk_plan_evidence(tenant_id,symbol,horizon,action_code,snapshot_hash)"
+              },
+              new String[] {
+                "research_plan",
+                "idx_plan_date",
+                "KEY idx_plan_date(tenant_id,archived,research_date)"
+              },
+              new String[] {
+                "research_plan_review",
+                "uk_review_evidence",
+                "UNIQUE KEY uk_review_evidence(tenant_id,plan_id,review_hash)"
+              },
+              new String[] {
+                "research_plan_review",
+                "idx_review_date",
+                "KEY idx_review_date(tenant_id,plan_id,review_date,id)"
+              })) {
+        boolean exists = false;
+        try (var indexes =
+            connection
+                .getMetaData()
+                .getIndexInfo(connection.getCatalog(), null, declaration[0], false, false)) {
+          while (indexes.next())
+            if (declaration[1].equals(indexes.getString("INDEX_NAME"))) exists = true;
+        }
+        if (!exists) {
+          writer.execute(connection, "ALTER TABLE " + declaration[0] + " ADD " + declaration[2]);
+          changed++;
+        }
+      }
+
       changed += alignTenantForeignKeys(connection);
       try (var indexes =
           connection

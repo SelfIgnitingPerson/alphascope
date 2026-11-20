@@ -201,6 +201,40 @@ function entryDecision(marker: 'OPEN' | 'ADD') {
               依据所选日期的已保存收盘数据判断；保存计划只留存观察方案，不代表已买入或系统确认可以买入。
             </small>
           </div>
+          <article
+            v-if="current.code === 'MEDIUM' && data.mediumTrendCandidate"
+            class="notice notice--subtle"
+            data-testid="medium-trend-candidate"
+          >
+            <strong>中期顺趋势建仓 · 研究候选</strong>
+            <p v-if="!data.mediumTrendCandidate.dataAvailable">
+              需要连续 65 个有效交易日的同源行情。
+            </p>
+            <template v-else>
+              <p>
+                {{
+                  data.mediumTrendCandidate.trendMatched
+                    ? '顺趋势行情条件已满足'
+                    : '继续等待顺趋势条件'
+                }}。 60 日均线须不低于 5 个交易日前，最近两日收盘均须站在各自的 60 日均线上。
+              </p>
+              <p>
+                60 日均线 {{ number(data.mediumTrendCandidate.ma60) }} 元 · 建仓风险预算参考
+                {{ number(data.mediumTrendCandidate.stopReference) }} 元。
+                {{
+                  data.mediumTrendCandidate.exit
+                    ? '当前趋势已触发退出复核。'
+                    : '收盘跌破下行的 60 日均线时尝试退出。'
+                }}
+              </p>
+            </template>
+            <RouterLink
+              to="/backtest"
+              class="text-link"
+            >
+              去历史信号核对一手金额、风险预算和模拟成交 →
+            </RouterLink>
+          </article>
           <div
             v-if="current.missing.length"
             class="notice notice--warning"
@@ -354,6 +388,7 @@ function entryDecision(marker: 'OPEN' | 'ADD') {
                   </p>
                 </div>
                 <SaveResearchPlan
+                  :evidence-version="JSON.stringify(data)"
                   v-if="data.quoteDate === data.asOf && current.status !== 'UNAVAILABLE'"
                   :symbol="symbol"
                   :date="date"

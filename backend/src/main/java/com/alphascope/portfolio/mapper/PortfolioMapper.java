@@ -1,11 +1,10 @@
 package com.alphascope.portfolio.mapper;
 
+import com.alphascope.portfolio.dto.AccountInput;
 import com.alphascope.portfolio.dto.PositionDO;
 import com.alphascope.portfolio.dto.PositionWriteCommand;
 import com.alphascope.portfolio.dto.WatchlistDO;
 import com.alphascope.portfolio.entity.PortfolioAccount;
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -64,8 +63,7 @@ public interface PortfolioMapper {
   /**
    * 新增或更新本机账户 id=1 的人工资产总额及业务日期。
    *
-   * @param assets 人工登记的人民币资产总额；null 表示未知，不自动按持仓推算
-   * @param date 人工资产登记对应的业务日期，上海时区
+   * @param input 人工资产总额、日期及可选用款前提
    */
-  void accountSave(@Param("assets") BigDecimal assets, @Param("date") LocalDate date);
+  void accountSave(AccountInput input);
 }

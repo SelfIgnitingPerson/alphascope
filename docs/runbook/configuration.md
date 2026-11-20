@@ -94,7 +94,7 @@ alphascope.validation配置maximum-symbols（默认10）、maximum-active（20�
 
 | 属性或变量 | 默认 | 用途 |
 | --- | --- | --- |
-| ACCESS_MODE | LOCAL | LOCAL只接受直接回环；PUBLIC使用会话和SQL隔离 |
+| ACCESS_MODE | LOCAL | LOCAL允许代理转发，未登录使用保留管理员空间；PUBLIC使用会话和SQL隔离 |
 | PUBLIC_ORIGINS | 开发时本机5173 | 完整来源列表，PUBLIC必须HTTPS且不能通配 |
 | ADMIN_USERNAME / ADMIN_PASSWORD | 空 | 首次PUBLIC管理员配置，已有账号不会因更换环境值重置 |
 | REGISTRATION_ENABLED / REGISTRATION_INVITATION | false / 空 | 邀请注册，不允许匿名自行获得管理员角色 |

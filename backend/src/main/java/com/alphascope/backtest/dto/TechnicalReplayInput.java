@@ -15,4 +15,16 @@ public record TechnicalReplayInput(
     /** 唯一规则、技术算法和精度口径。 */
     RuleDefinitionSnapshot definition,
     /** 同源停牌证据排除后的标的应有交易日，统计窗口仍按市场日历成熟。 */
-    Set<LocalDate> stockTradingDates) {}
+    Set<LocalDate> stockTradingDates,
+    /** 新版输入冻结公告行动；null表示原V1协议，复算保持原行为。 */
+    @com.fasterxml.jackson.annotation.JsonInclude(
+            com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        java.util.List<com.alphascope.fundamental.dto.CorporateActionInput> corporateActions) {
+  /** 保留旧构造和旧冻结协议，不以新资料改写历史复算。 */
+  public TechnicalReplayInput(
+      SignalEvaluationInput source,
+      RuleDefinitionSnapshot definition,
+      Set<LocalDate> stockTradingDates) {
+    this(source, definition, stockTradingDates, null);
+  }
+}

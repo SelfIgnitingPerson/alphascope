@@ -35,7 +35,7 @@ import java.util.function.Function;
  * @author chenxuefeng
  */
 public final class EastmoneyResearchProvider implements ResearchDataProvider {
-  private static final String ROSTER =
+  static final String ROSTER =
       "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.";
   private static final String QUOTES = "https://push2.eastmoney.com/api/qt/clist/get";
   private final Clock clock;
@@ -43,6 +43,8 @@ public final class EastmoneyResearchProvider implements ResearchDataProvider {
   private final Function<URI, JsonNode> transport;
   private ResearchMarketSnapshot cached;
   private Instant cacheUntil = Instant.EPOCH;
+  private PageBatch directoryCache;
+  private LocalDate directoryDate;
 
   public EastmoneyResearchProvider(Clock clock) {
     this.clock = clock;
@@ -78,6 +80,11 @@ public final class EastmoneyResearchProvider implements ResearchDataProvider {
   }
 
   @Override
+  public boolean fullMarketSnapshots() {
+    return true;
+  }
+
+  @Override
   public Instant blockedUntil() {
     return http == null ? null : http.blockedUntil();
   }
@@ -89,40 +96,11 @@ public final class EastmoneyResearchProvider implements ResearchDataProvider {
 
   @Override
   public synchronized ResearchMarketSnapshot snapshot(LocalDate date) {
-    var now = clock.instant().atZone(ZoneId.of("Asia/Shanghai"));
-    if (!date.equals(now.toLocalDate()))
-      throw new ProviderDataUnavailableException("PUBLIC_MARKET_HISTORY_NOT_ARCHIVED");
-    if (now.toLocalTime().isBefore(LocalTime.of(16, 10)))
-      throw new ProviderDataUnavailableException("PUBLIC_MARKET_NOT_CLOSED");
-    if (!new ExchangeCalendarProvider().fetchCalendar(date, date).get(date))
-      throw new ProviderDataUnavailableException("PUBLIC_MARKET_NOT_TRADING_DAY");
+    var now = verifiedClose(date);
     if (cached != null && cached.date().equals(date) && clock.instant().isBefore(cacheUntil))
       return cached;
-    List<JsonNode> rosterPages = new ArrayList<>(),
-        quotePages = new ArrayList<>(),
-        haltPages = new ArrayList<>();
-    int expected = count();
-    List<JsonNode> roster = new ArrayList<>();
-    Set<String> symbols = new HashSet<>();
-    for (int page = 1; roster.size() < expected && page <= 150; page++) {
-      JsonNode rows =
-          read(
-              ROSTER
-                  + "getHQNodeData?page="
-                  + page
-                  + "&num=100&sort=symbol&asc=1&node=hs_a&symbol=&_s_r_a=page");
-      if (!rows.isArray() || rows.isEmpty() || rows.size() > 100)
-        throw new IllegalStateException("PUBLIC_ROSTER_PAGE_INVALID");
-      rosterPages.add(rows);
-      for (var row : rows) {
-        if (!symbols.add(row.path("symbol").asText()))
-          throw new IllegalStateException("PUBLIC_ROSTER_PAGE_REPEATED");
-        roster.add(row);
-      }
-      progress("核对当前A股目录", roster.size(), expected);
-    }
-    if (roster.size() != expected || count() != expected)
-      throw new IllegalStateException("PUBLIC_ROSTER_COUNT_CHANGED");
+    var directory = directory(date);
+    List<JsonNode> quotePages = new ArrayList<>();
     List<JsonNode> quotes = new ArrayList<>();
     Set<String> quoteCodes = new HashSet<>();
     int total = -1;
@@ -154,7 +132,89 @@ public final class EastmoneyResearchProvider implements ResearchDataProvider {
     if (confirmation.path("data").path("total").asInt(-1) != total)
       throw new IllegalStateException("PUBLIC_QUOTE_COUNT_CHANGED");
     quotePages.add(confirmation);
+    var halts = suspensions(date);
+    String raw =
+        Jsons.write(
+            Map.of(
+                "rosterSource",
+                "SINA",
+                "quoteSource",
+                "EASTMONEY",
+                "rosterCount",
+                directory.rows().size(),
+                "quoteDirectoryCount",
+                total,
+                "observedAt",
+                now,
+                "businessDate",
+                date,
+                "rosterPages",
+                directory.pages(),
+                "quotePages",
+                quotePages,
+                "suspensionPages",
+                halts.pages(),
+                "sourceUrls",
+                List.of(ROSTER + "getHQNodeData", QUOTES, "https://data.eastmoney.com/tfpxx/")));
+    if (raw.getBytes(StandardCharsets.UTF_8).length > 12_000_000)
+      throw new IllegalStateException("PUBLIC_MARKET_EVIDENCE_TOO_LARGE");
+    cached =
+        FreeMarketNormalizer.normalize(
+            FreeMarketInput.builder()
+                .date(date)
+                .roster(directory.rows())
+                .quotes(quotes)
+                .suspensions(halts.rows())
+                .upstreamJson(raw)
+                .build());
+    cacheUntil = clock.instant().plusSeconds(1800);
+    return cached;
+  }
+
+  java.time.ZonedDateTime verifiedClose(LocalDate date) {
+    var now = clock.instant().atZone(ZoneId.of("Asia/Shanghai"));
+    if (!date.equals(now.toLocalDate()))
+      throw new ProviderDataUnavailableException("PUBLIC_MARKET_HISTORY_NOT_ARCHIVED");
+    if (now.toLocalTime().isBefore(LocalTime.of(16, 10)))
+      throw new ProviderDataUnavailableException("PUBLIC_MARKET_NOT_CLOSED");
+    if (!Boolean.TRUE.equals(new ExchangeCalendarProvider().fetchCalendar(date, date).get(date)))
+      throw new ProviderDataUnavailableException("PUBLIC_MARKET_NOT_TRADING_DAY");
+    return now;
+  }
+
+  synchronized PageBatch directory(LocalDate date) {
+    if (date.equals(directoryDate) && directoryCache != null) return directoryCache;
+    var pages = new ArrayList<JsonNode>();
+    var rows = new ArrayList<JsonNode>();
+    var symbols = new HashSet<String>();
+    int expected = count();
+    for (int page = 1; rows.size() < expected && page <= 150; page++) {
+      var batch =
+          read(
+              ROSTER
+                  + "getHQNodeData?page="
+                  + page
+                  + "&num=100&sort=symbol&asc=1&node=hs_a&symbol=&_s_r_a=page");
+      if (!batch.isArray() || batch.isEmpty() || batch.size() > 100)
+        throw new IllegalStateException("PUBLIC_ROSTER_PAGE_INVALID");
+      pages.add(batch);
+      for (var row : batch) {
+        if (!symbols.add(row.path("symbol").asText()))
+          throw new IllegalStateException("PUBLIC_ROSTER_PAGE_REPEATED");
+        rows.add(row);
+      }
+      progress("核对当前 A 股目录", rows.size(), expected);
+    }
+    if (rows.size() != expected || count() != expected)
+      throw new IllegalStateException("PUBLIC_ROSTER_COUNT_CHANGED");
+    directoryDate = date;
+    directoryCache = new PageBatch(List.copyOf(rows), List.copyOf(pages));
+    return directoryCache;
+  }
+
+  PageBatch suspensions(LocalDate date) {
     List<JsonNode> suspensions = new ArrayList<>();
+    List<JsonNode> haltPages = new ArrayList<>();
     int haltTotal = -1;
     for (int page = 1; page <= 10; page++) {
       String filter = "(MARKET=\"全部\")(DATETIME='" + date + "')";
@@ -182,49 +242,21 @@ public final class EastmoneyResearchProvider implements ResearchDataProvider {
     }
     if (suspensions.size() != haltTotal)
       throw new IllegalStateException("PUBLIC_SUSPENSION_PAGE_MISSING");
-    String raw =
-        Jsons.write(
-            Map.of(
-                "rosterSource",
-                "SINA",
-                "quoteSource",
-                "EASTMONEY",
-                "rosterCount",
-                expected,
-                "quoteDirectoryCount",
-                total,
-                "observedAt",
-                now,
-                "businessDate",
-                date,
-                "rosterPages",
-                rosterPages,
-                "quotePages",
-                quotePages,
-                "suspensionPages",
-                haltPages,
-                "sourceUrls",
-                List.of(ROSTER + "getHQNodeData", QUOTES, "https://data.eastmoney.com/tfpxx/")));
-    if (raw.getBytes(StandardCharsets.UTF_8).length > 12_000_000)
-      throw new IllegalStateException("PUBLIC_MARKET_EVIDENCE_TOO_LARGE");
-    cached =
-        FreeMarketNormalizer.normalize(
-            FreeMarketInput.builder()
-                .date(date)
-                .roster(roster)
-                .quotes(quotes)
-                .suspensions(suspensions)
-                .upstreamJson(raw)
-                .build());
-    cacheUntil = clock.instant().plusSeconds(1800);
-    return cached;
+    return new PageBatch(List.copyOf(suspensions), List.copyOf(haltPages));
   }
+
+  /**
+   * 已核验分页的行和原始响应，供两个收盘报价通道共用。
+   *
+   * @author chenxuefeng
+   */
+  record PageBatch(List<JsonNode> rows, List<JsonNode> pages) {}
 
   private int count() {
     int count;
     try {
       count = Integer.parseInt(read(ROSTER + "getHQNodeStockCount?node=hs_a").asText());
-    } catch (RuntimeException error) {
+    } catch (NumberFormatException error) {
       throw new IllegalStateException("PUBLIC_ROSTER_COUNT_INVALID", error);
     }
     if (count < 4000 || count > 15000)

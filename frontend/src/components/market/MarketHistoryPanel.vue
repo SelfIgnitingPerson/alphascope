@@ -30,11 +30,11 @@ const overview = useResource((signal) => getOverview(selectedDate.value, signal)
   identity: () => selectedDate.value,
 });
 const observation = computed(() => overview.data.value?.observation);
-const scoreMinimum = computed(() => score.data.value?.parameters.minimumCoverage ?? 0.95);
-const observationMinimum = computed(() => observation.value?.analysis?.parameters.minimumCoverage);
-const requiredCoverage = computed(() =>
-  Math.max(scoreMinimum.value, observationMinimum.value ?? scoreMinimum.value),
-);
+const currentObservation = computed(() => {
+  const analysis = observation.value?.analysis;
+  return analysis?.businessDate === selectedDate.value ? analysis : null;
+});
+const observationMinimum = computed(() => currentObservation.value?.parameters.minimumCoverage);
 const progress = computed(() => {
   const state = observation.value?.collection;
   if (state?.business_date !== selectedDate.value || !state.evidence_json) return null;
@@ -54,18 +54,16 @@ const progress = computed(() => {
   }
 });
 const gap = computed(() =>
-  typeof breadth.value?.trading === 'number' && typeof breadth.value?.valid60 === 'number'
-    ? Math.max(0, Math.ceil(breadth.value.trading * requiredCoverage.value) - breadth.value.valid60)
+  breadth.value && observationMinimum.value != null
+    ? Math.max(
+        0,
+        Math.ceil(breadth.value.trading * observationMinimum.value) - breadth.value.valid60,
+      )
     : null,
 );
 const mutation = useMutation();
 const job = ref<number>();
-const breadth = computed(
-  () =>
-    score.data.value?.dimensions.breadth?.evidence.observed as
-      | { trading?: number; valid20?: number; valid60?: number; coverage60?: number }
-      | undefined,
-);
+const breadth = computed(() => currentObservation.value?.breadth);
 async function refreshCoverage() {
   await Promise.all([score.reload(), coverage.reload(), overview.reload()]);
 }
@@ -78,7 +76,7 @@ async function fill() {
 <template>
   <SectionCard
     title="沪深市场数据补齐"
-    description="沪深观察与完整全A分开。北交所当日清单未核验时，全A评级继续保留未知。"
+    description="补齐沪深 A 股历史日线和同源复权因子。这里按所选研究日显示已发布的沪深广度。"
   >
     <label class="history-date">
       补齐目标日期
@@ -96,18 +94,14 @@ async function fill() {
     >
       <template v-if="score.data.value">
         <p>
-          研究日 {{ selectedDate }} · 已发布均线广度有效 {{ breadth?.valid60 ?? '待核对' }} /
+          研究日 {{ selectedDate }} · MA20 有效 {{ breadth?.valid20 ?? '待核对' }} /
+          {{ breadth?.trading ?? '待核对' }} 只 · MA60 有效 {{ breadth?.valid60 ?? '待核对' }} /
           {{ breadth?.trading ?? '待核对' }} 只。
         </p>
         <p class="help-text">
-          评分准入覆盖 {{ percent(scoreMinimum, 0) }}；分项观察覆盖
+          沪深分项发布门槛
           {{ observationMinimum == null ? '待核对' : percent(observationMinimum, 0) }}。
-          两项门槛分别核对，不会降低原观察门槛。
-        </p>
-        <p>
-          距离已知较高门槛 {{ percent(requiredCoverage, 0) }} 仍差
-          {{ gap ?? '待核对' }}
-          只合格历史窗口；缺项不会补成零值。
+          <template v-if="gap != null">MA60 距离门槛还差 {{ gap }} 只。</template>
         </p>
         <p
           v-if="progress"

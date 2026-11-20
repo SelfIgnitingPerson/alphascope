@@ -27,6 +27,15 @@ public interface MarketObservationService {
   void sync(LocalDate date);
 
   /**
+   * 收盘任务使用已存截面和因子基线补当日增量，完整历史回补仍由独立任务执行。
+   *
+   * @param date 已确认收盘研究日
+   */
+  default void refreshAfterClose(LocalDate date) {
+    calculateStored(date);
+  }
+
+  /**
    * 仅用已保存截面与已核验因子形成观察，不在私人报告中启动全市场网络补齐。
    *
    * @param date 业务日期

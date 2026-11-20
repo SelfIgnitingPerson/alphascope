@@ -28,6 +28,9 @@ public class ResearchPlan {
   /** 原始研究文本SHA256。 */
   private String snapshotHash;
 
+  /** 用户已确认阅读的复核指纹；新证据重新进入待办。 */
+  private String acknowledgedReviewHash;
+
   /** 是否由所属用户归档，不删除证据。 */
   private Boolean archived;
 

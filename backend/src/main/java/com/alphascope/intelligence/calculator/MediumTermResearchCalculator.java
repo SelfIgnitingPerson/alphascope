@@ -12,6 +12,7 @@ import com.alphascope.intelligence.calculator.HoldingResearchSupport.Bar;
 import com.alphascope.intelligence.dto.HoldingResearchInput;
 import com.alphascope.intelligence.vo.HoldingResearchView.Action;
 import com.alphascope.intelligence.vo.HoldingResearchView.Horizon;
+import com.alphascope.intelligence.vo.HoldingResearchView.MediumTrendCandidate;
 import com.alphascope.intelligence.vo.PositionStrategy.Condition;
 import com.alphascope.intelligence.vo.PriceVolumeStudy;
 import java.util.ArrayList;
@@ -22,10 +23,11 @@ import java.util.List;
  *
  * @author chenxuefeng
  */
-final class MediumTermResearchCalculator {
+public final class MediumTermResearchCalculator {
   private MediumTermResearchCalculator() {}
 
-  static Horizon calculate(HoldingResearchInput input, PriceVolumeStudy study) {
+  /** 用现有研究条件逐项形成中期观察，供页面和回放共用。 */
+  public static Horizon calculate(HoldingResearchInput input, PriceVolumeStudy study) {
     if (!"AVAILABLE".equals(study.status()))
       return unavailable("MEDIUM", "需先补齐当日近两月行情与日历，才能评估中期行动");
     List<Bar> bars;
@@ -211,4 +213,61 @@ final class MediumTermResearchCalculator {
         .missing(List.of())
         .build();
   }
+
+  /** MA60 对照的可复算条件，基于与现有中期规则相同的连续同源窗口。 */
+  public static TrendConditions trendConditions(
+      HoldingResearchInput input, PriceVolumeStudy study) {
+    if (!"AVAILABLE".equals(study.status())) return null;
+    List<Bar> bars;
+    try {
+      bars = checkedBars(input, 65);
+    } catch (IllegalArgumentException gap) {
+      return null;
+    }
+    int n = bars.size();
+    double ma = average(bars.subList(n - 60, n));
+    double oldMa = average(bars.subList(n - 65, n - 5));
+    double previousMa = average(bars.subList(n - 61, n - 1));
+    double close = bars.getLast().close();
+    double pad = Math.max(ma * .01, study.atr14() * .25);
+    double upper = money(ma + pad);
+    double originalStop =
+        money(
+            bars.subList(n - 61, n - 1).stream().mapToDouble(Bar::low).min().orElseThrow()
+                - study.atr14() * .5);
+    double sizingStop = money(ma - study.atr14());
+    return new TrendConditions(
+        ma >= oldMa && close >= ma && bars.get(n - 2).close() >= previousMa,
+        close <= upper,
+        study.volumeRatio() >= 1,
+        originalStop > 0 && originalStop < ma - pad && (upper - originalStop) / upper <= .12,
+        close < ma && ma < oldMa,
+        sizingStop > 0 && sizingStop < close ? sizingStop : null,
+        money(ma));
+  }
+
+  /**
+   * 读取与历史对照相同的中期顺势条件，供当前个股研究显示。
+   *
+   * @param input 当日同源价格与日历证据
+   * @param study 同日量价计算结果
+   * @return 当前趋势状态、均线和用于计算仓位的风险参考
+   */
+  public static MediumTrendCandidate trendCandidate(
+      HoldingResearchInput input, PriceVolumeStudy study) {
+    var conditions = trendConditions(input, study);
+    if (conditions == null) return new MediumTrendCandidate(false, false, null, null, false);
+    return new MediumTrendCandidate(
+        true, conditions.trend(), conditions.ma60(), conditions.sizingStop(), conditions.exit());
+  }
+
+  /** 分步比较时的趋势、回踩、量能、风险和退出条件。 @author chenxuefeng */
+  public record TrendConditions(
+      boolean trend,
+      boolean retest,
+      boolean volume,
+      boolean structureRiskAllowed,
+      boolean exit,
+      Double sizingStop,
+      Double ma60) {}
 }

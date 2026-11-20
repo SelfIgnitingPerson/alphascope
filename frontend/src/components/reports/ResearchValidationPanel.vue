@@ -31,6 +31,7 @@ const formElement = ref<HTMLDetailsElement>();
 const start = ref(yearBefore(yearBefore(props.date)));
 const end = ref(props.date);
 const scope = ref<ResearchValidationRequest['scope']>('ALL');
+const portfolioCapital = ref(50000);
 const symbols = ref<string[]>([]);
 const selected = ref<ValidationTask | null>(null);
 const stock = ref('');
@@ -47,6 +48,36 @@ const active = (status: string) =>
   ['PENDING', 'RUNNING', 'CANCEL_REQUESTED', 'TIMEOUT_REQUESTED'].includes(status);
 const running = computed(() => selected.value && active(selected.value.status));
 const summary = computed(() => selected.value?.summary);
+const replayWinRates = computed(() => {
+  const stocks = summary.value?.stocks ?? [];
+  const labels = { ALL: '全区间', DISCOVERY: '较早区间', HOLDOUT: '较晚留出' };
+  return Object.entries(labels).flatMap(([key, label]) => {
+    const periods = stocks.flatMap(
+      (item) => item.strategy?.periods.filter((row) => row.label === key) ?? [],
+    );
+    const usable = periods.flatMap((row) =>
+      row.status !== 'INCOMPLETE' && row.tradeStatistics ? [row.tradeStatistics] : [],
+    );
+    if (
+      !usable.length &&
+      !stocks.some((item) => item.strategy?.periods.some((row) => row.tradeStatistics))
+    )
+      return [];
+    const closed = usable.reduce((total, row) => total + row.closedTrades, 0);
+    const wins = usable.reduce((total, row) => total + row.winningTrades, 0);
+    return [
+      {
+        key,
+        label,
+        closed,
+        wins,
+        winRate: closed ? wins / closed : null,
+        covered: usable.length,
+        total: stocks.length,
+      },
+    ];
+  });
+});
 const selectedStock = computed(() =>
   summary.value?.stocks.find((item) => item.symbol === stock.value),
 );
@@ -158,6 +189,11 @@ async function submit() {
     if (props.synthetic) throw Error('演示模式不能提交真实研究验证');
     if (!start.value || !end.value || start.value > end.value)
       throw Error('请填写顺序正确的起止日期');
+    if (
+      scope.value !== 'MARKET' &&
+      !(portfolioCapital.value >= 1000 && portfolioCapital.value <= 10000000)
+    )
+      throw Error('请输入 1,000 至 10,000,000 元的回放本金');
     selectionSequence++;
     loadingTask.value = false;
     selected.value = await submitValidation({
@@ -165,6 +201,7 @@ async function submit() {
       end: end.value,
       scope: scope.value,
       symbols: scope.value === 'MARKET' ? [] : symbols.value,
+      ...(scope.value === 'MARKET' ? {} : { portfolioCapital: portfolioCapital.value }),
     });
     formOpen.value = false;
     notice.value = '验证任务已接收；计算在后台执行，刷新页面不会重复提交。';
@@ -321,6 +358,35 @@ async function cancel() {
           使用所选股票更新至 {{ date }} →
         </el-button>
       </div>
+      <StrategySimulationPanel
+        v-if="summary.portfolio"
+        :simulation="summary.portfolio"
+        shared
+      />
+      <section
+        v-if="replayWinRates.length"
+        class="notice notice--subtle"
+        aria-label="历史回放胜率汇总"
+      >
+        <strong>独立资金回放 · 扣费后已平仓胜率</strong>
+        <ul>
+          <li
+            v-for="row in replayWinRates"
+            :key="row.key"
+          >
+            {{ row.label }} ·
+            {{
+              row.closed
+                ? `${percent(row.winRate, 2)}（${row.wins} / ${row.closed} 笔）`
+                : '没有完整平仓'
+            }}
+            · 可核验 {{ row.covered }} / {{ row.total }} 只
+          </li>
+        </ul>
+        <p class="help-text">
+          各股票独立模拟，按完整平仓笔数汇总。分批减仓及期末未平仓的持仓不单独计数。
+        </p>
+      </section>
       <ValidationMarketPanel :summary="summary" />
       <template v-if="selectedStock">
         <StrategyEvidenceSummary
@@ -514,6 +580,23 @@ async function cancel() {
               :label="`${item.name} ${item.symbol}`"
             />
           </el-select>
+        </label>
+        <label
+          v-if="scope !== 'MARKET'"
+          class="validation-form__field"
+          for="validation-capital"
+        >
+          共用账户本金（元）
+          <el-input-number
+            id="validation-capital"
+            v-model="portfolioCapital"
+            :min="1000"
+            :max="10000000"
+            :step="1000"
+            :precision="0"
+            :controls="false"
+            aria-label="共用账户本金"
+          />
         </label>
         <el-button
           native-type="submit"

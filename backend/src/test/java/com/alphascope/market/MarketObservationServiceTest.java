@@ -23,6 +23,7 @@ import com.alphascope.market.vo.MarketBreadthView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -80,6 +81,57 @@ class MarketObservationServiceTest {
       verify(collections, atLeastOnce()).collectionSave(progress.capture());
       assertEquals("ACCESS_RESTRICTED", progress.getValue().getStatus());
     }
+  }
+
+  @Test
+  void historyUsesHistoricalSourceAndOnlyFetchesDailyEventsAfterVerifiedBaseline()
+      throws Exception {
+    var service = service();
+    var first = date.minusDays(1);
+    when(market.expectedDates(any())).thenReturn(Set.of(first, date));
+    when(router.historicalSnapshots("BAOSTOCK")).thenReturn(true);
+    when(breadth.snapshot(date)).thenReturn(null);
+    var current = snapshots.forSource(null);
+    when(snapshots.forSource(any()))
+        .thenAnswer(
+            invocation -> {
+              com.alphascope.market.dto.ResearchSnapshotQuery query = invocation.getArgument(0);
+              return query.date().equals(date)
+                  ? current
+                  : MarketBreadthSnapshot.builder()
+                      .id(4L)
+                      .tradeDate(first)
+                      .source("BAOSTOCK")
+                      .contentHash("prior-breadth-hash")
+                      .metricsJson(current.getMetricsJson())
+                      .rawJson(current.getRawJson().replace(date.toString(), first.toString()))
+                      .build();
+            });
+    var sh = factor(2L, "sh.600000");
+    var sz = factor(3L, "sz.000001");
+    sh.setVerifiedThrough(first);
+    sz.setVerifiedThrough(first);
+    when(mapper.factorsForWindow(any())).thenReturn(List.of(sh, sz));
+    when(router.baoStockFactorEvents(date))
+        .thenReturn(
+            List.of(
+                Map.of(
+                    "code",
+                    "sh.600000",
+                    "dividOperateDate",
+                    date.toString(),
+                    "backAdjustFactor",
+                    "1.3")));
+    service.sync(date);
+    verify(breadth).syncHistory(List.of(first, date), "BAOSTOCK");
+    verify(router).baoStockFactorEvents(date);
+    verify(router, never()).baoStockFactorEvents(first);
+    verify(router, never()).factors(any());
+    var saved = ArgumentCaptor.forClass(MarketObservationSnapshot.class);
+    verify(mapper).save(saved.capture());
+    var proof =
+        json.readTree(saved.getValue().getEvidenceJson()).path("baoStockDailyFactorEvidence");
+    assertEquals("1.3", proof.path(date.toString()).get(0).path("backAdjustFactor").asText());
   }
 
   @Test

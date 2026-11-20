@@ -33,7 +33,9 @@ import java.util.Set;
 public final class EastmoneyFinancialProvider implements AutoCloseable {
   private final HttpClient http =
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
-  private final ObjectMapper json = new ObjectMapper();
+  private final ObjectMapper json =
+      new ObjectMapper()
+          .enable(com.fasterxml.jackson.databind.DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
   private final URI endpoint;
 
   public EastmoneyFinancialProvider() {
@@ -99,10 +101,18 @@ public final class EastmoneyFinancialProvider implements AutoCloseable {
     try {
       var income = request("RPT_F10_FINANCE_GINCOME", symbol);
       var cashflow = request("RPT_F10_FINANCE_GCASHFLOW", symbol);
+      JsonNode balance = json.createArrayNode();
+      try {
+        balance = request("RPT_F10_FINANCE_GBALANCE", symbol);
+      } catch (IOException unavailable) {
+        org.slf4j.LoggerFactory.getLogger(getClass())
+            .warn("资产负债表暂不可用 symbol={} reason={}", symbol, unavailable.getClass().getSimpleName());
+      }
       return parse(
           symbol,
           income,
           cashflow,
+          balance,
           LocalDateTime.now(ZoneId.of("Asia/Shanghai")),
           endpoint.toString());
     } catch (InterruptedException e) {
@@ -139,6 +149,37 @@ public final class EastmoneyFinancialProvider implements AutoCloseable {
   /** 只接受相同证券、同累计报告期的合并报表；不能把季度与累计数据混在同比中。 */
   public static List<Statement> parse(
       String symbol, JsonNode income, JsonNode cashflow, LocalDateTime fetchedAt, String endpoint) {
+    return parse(
+        symbol, income, cashflow, new ObjectMapper().createArrayNode(), fetchedAt, endpoint);
+  }
+
+  /**
+   * 匹配三张同源同报告期报表，新增报表缺失保留未知，修订时间取最晚证据。
+   *
+   * @param symbol 统一证券代码
+   * @param income 利润表
+   * @param cashflow 现金流表
+   * @param balance 资产负债表
+   * @param fetchedAt 实际采集时间
+   * @param endpoint 实际来源入口
+   * @return 有三表原文和保守可得时点的版本
+   */
+  public static List<Statement> parse(
+      String symbol,
+      JsonNode income,
+      JsonNode cashflow,
+      JsonNode balance,
+      LocalDateTime fetchedAt,
+      String endpoint) {
+    Map<LocalDate, JsonNode> balances = new HashMap<>();
+    for (var row : balance)
+      if (symbol.equals(row.path("SECUCODE").asText())) {
+        var date = day(row, "REPORT_DATE");
+        if (date != null
+            && type(date, row.path("REPORT_TYPE").asText()) != null
+            && balances.putIfAbsent(date, row) != null)
+          throw new IllegalArgumentException("DUPLICATE_BALANCE_PERIOD");
+      }
     Map<LocalDate, JsonNode> cash = new HashMap<>();
     for (var row : cashflow) {
       if (symbol.equals(row.path("SECUCODE").asText())) {
@@ -193,10 +234,25 @@ public final class EastmoneyFinancialProvider implements AutoCloseable {
           revisionKnown &= cu != null;
         }
       }
+      var b = balances.get(period);
+      if (b != null) {
+        var bn = day(b, "NOTICE_DATE");
+        var bu = day(b, "UPDATE_DATE");
+        if (bn == null || bn.isBefore(period)) b = null;
+        else {
+          if (bn.isAfter(latest)) latest = bn;
+          if (bu != null && bu.isAfter(latest)) latest = bu;
+          revisionKnown &= bu != null;
+        }
+      }
       // 日期精度不能假设开盘前发布；无修订日期时，仅从本次抓取时间起可用。
       LocalDateTime available = revisionKnown ? latest.plusDays(1).atStartOfDay() : fetchedAt;
       String raw =
-          Jsons.write(Map.of("income", row, "cashflow", c == null ? NullNode.instance : c));
+          Jsons.write(
+              b == null
+                  ? Map.of("income", row, "cashflow", c == null ? NullNode.instance : c)
+                  : Map.of(
+                      "income", row, "cashflow", c == null ? NullNode.instance : c, "balance", b));
       String url =
           endpoint
               + "?reportName=RPT_F10_FINANCE_GINCOME&columns=ALL&filter="

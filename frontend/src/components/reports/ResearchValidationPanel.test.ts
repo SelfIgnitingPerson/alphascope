@@ -93,6 +93,7 @@ it('lists all enabled current watches instead of limiting the selector to old ta
     end: '2026-11-13',
     scope: 'TECHNICAL',
     symbols: ['002463.SZ'],
+    portfolioCapital: 50000,
   });
   wrapper.unmount();
 });
@@ -184,6 +185,7 @@ it('reads only lightweight history on mount and submits the explicit selected da
     end: '2026-10-30',
     scope: 'ALL',
     symbols: [],
+    portfolioCapital: 50000,
   });
   expect(wrapper.find('[data-testid="download-validation"]').exists()).toBe(false);
   wrapper.unmount();
@@ -331,6 +333,7 @@ it('shows real archived samples with their own frozen dates and prepares an upda
     end: '2026-11-13',
     scope: 'TECHNICAL',
     symbols: ['300476.SZ'],
+    portfolioCapital: 50000,
   });
   wrapper.unmount();
 });

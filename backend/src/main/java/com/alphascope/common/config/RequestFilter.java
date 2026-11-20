@@ -77,13 +77,6 @@ public class RequestFilter extends OncePerRequestFilter {
         reject(s, 400, ResultCode.INVALID_ARGUMENT, "请求路径无效", id);
         return;
       }
-      if (!publicMode
-          && (!loopback(r.getRemoteAddr())
-              || r.getHeader("X-Forwarded-For") != null
-              || r.getHeader("Forwarded") != null)) {
-        reject(s, 403, ResultCode.LOCAL_ONLY, "本地模式仅允许回环访问", id);
-        return;
-      }
       if (r.getMethod().equals("OPTIONS")) {
         chain.doFilter(r, s);
         return;
@@ -157,10 +150,6 @@ public class RequestFilter extends OncePerRequestFilter {
         || path.startsWith("/api/v1/admin/backtest-experiments/")
         || path.equals("/api/v1/admin/backtest-validation-tasks")
         || path.startsWith("/api/v1/admin/backtest-validation-tasks/"));
-  }
-
-  private boolean loopback(String ip) {
-    return Set.of("127.0.0.1", "::1", "0:0:0:0:0:0:0:1").contains(ip);
   }
 
   private void reject(

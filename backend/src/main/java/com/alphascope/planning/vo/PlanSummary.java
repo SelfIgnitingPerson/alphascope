@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
  * @param asOf 原研究日期
  * @param latestReviewDate 最近保存的复核日期，未复核时为空
  * @param latestReviewStatus 最近保存的复核状态，不等于当前所选日已复核
+ * @param acknowledgedReviewHash 内部比对的已阅读指纹，不向接口暴露
+ * @param acknowledged 是否已确认阅读该条复核
  * @param latestReviewExplanation 最近保存复核的具体原因
  */
 public record PlanSummary(
@@ -30,4 +32,8 @@ public record PlanSummary(
     LocalDate asOf,
     LocalDate latestReviewDate,
     String latestReviewStatus,
-    String latestReviewExplanation) {}
+    String latestReviewExplanation,
+    boolean acknowledged,
+    @com.fasterxml.jackson.annotation.JsonIgnore String acknowledgedReviewHash,
+    String source,
+    java.util.Set<String> inputSources) {}

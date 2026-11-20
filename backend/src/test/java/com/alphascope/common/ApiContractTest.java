@@ -107,19 +107,22 @@ class ApiContractTest {
   }
 
   @Test
-  void nonLoopbackWriteIsRejectedBeforeTheService() throws Exception {
+  void localModeAcceptsNonLoopbackAndForwardedWriteWithoutChangingTheResponseContract()
+      throws Exception {
     mvc.perform(
             post("/api/v1/admin/jobs/daily")
                 .param("date", date.toString())
+                .header("X-Forwarded-For", "192.0.2.2")
+                .header("Forwarded", "for=192.0.2.2;proto=https")
                 .with(
                     request -> {
                       request.setRemoteAddr("192.0.2.1");
                       return request;
                     }))
-        .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("LOCAL_ONLY"))
-        .andExpect(jsonPath("$.data").isEmpty())
+        .andExpect(status().isAccepted())
+        .andExpect(jsonPath("$.code").value("SUCCESS"))
+        .andExpect(jsonPath("$.data.status").value("PENDING"))
         .andExpect(jsonPath("$.requestId").isString());
-    verify(jobs, never()).submit(any(JobSubmissionCommand.class));
+    verify(jobs, times(1)).submit(any(JobSubmissionCommand.class));
   }
 }

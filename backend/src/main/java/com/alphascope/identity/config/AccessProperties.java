@@ -17,7 +17,7 @@ import org.springframework.validation.annotation.Validated;
 @Validated
 @ConfigurationProperties(prefix = "alphascope.access")
 public class AccessProperties {
-  /** LOCAL仅限回环访问；PUBLIC要求每个业务请求具有有效会话。 */
+  /** LOCAL未登录时使用保留管理员空间，支持代理转发；PUBLIC要求每个业务请求具有有效会话。 */
   private Mode mode = Mode.LOCAL;
 
   /** 允许提交浏览器写请求的完整来源，不能配置通配符。 */

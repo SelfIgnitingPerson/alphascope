@@ -189,6 +189,67 @@ class HoldingResearchTest {
     assertFalse(shortTerm.conclusion().contains("有方案满足本期行情条件"));
   }
 
+  @Test
+  void longExitNeedsConsecutivePublicSameSourceReports() {
+    var base = input(300);
+    var newer = base.stock().financials().getFirst();
+    newer.setReportType("Q3_CUMULATIVE");
+    newer.setSourceUrl("https://example.test/q3");
+    newer.setProfitYoy(BigDecimal.valueOf(-.2));
+    var earlier = financial();
+    earlier.setPeriodEnd(LocalDate.of(2026, 6, 30));
+    earlier.setReportType("H1_CUMULATIVE");
+    earlier.setSourceUrl("https://example.test/h1");
+    earlier.setProfitYoy(BigDecimal.valueOf(-.15));
+    earlier.setAvailableAt(date.plusDays(1).atStartOfDay());
+    base.stock().financials().add(earlier);
+    var thesis =
+        new com.alphascope.fundamental.dto.ValuationThesisInput(
+            "300476.SZ",
+            date.minusDays(40),
+            date.plusMonths(1),
+            BigDecimal.ONE,
+            BigDecimal.valueOf(2),
+            BigDecimal.TEN,
+            BigDecimal.TEN,
+            BigDecimal.ZERO,
+            true,
+            "已登记公开经营证据与情景",
+            "连续两期利润同比低于下限时复核退出",
+            "https://example.test/thesis",
+            "EASTMONEY_FINANCIAL",
+            null,
+            List.of(),
+            new com.alphascope.fundamental.dto.ValuationExitPolicy(
+                BigDecimal.valueOf(-.1), false, 2));
+    var withPolicy =
+        HoldingResearchInput.builder()
+            .stock(base.stock())
+            .expectedDates(base.expectedDates())
+            .asOf(date)
+            .valuationThesis(thesis)
+            .build();
+
+    var unverified =
+        HoldingResearchCalculator.calculate(withPolicy).horizons().getLast().actions().getLast();
+    assertEquals("UNAVAILABLE", unverified.status());
+    assertNull(unverified.conditions().getFirst().met());
+
+    earlier.setAvailableAt(date.minusDays(2).atStartOfDay());
+    var actual = HoldingResearchCalculator.calculate(withPolicy).horizons().getLast();
+    assertEquals("WATCH", actual.actions().getLast().status());
+    assertEquals("RISK_BLOCKED", actual.actions().getFirst().status());
+    earlier.setSource("DIFFERENT");
+    assertEquals(
+        "UNAVAILABLE",
+        HoldingResearchCalculator.calculate(withPolicy)
+            .horizons()
+            .getLast()
+            .actions()
+            .getLast()
+            .status());
+  }
+
   private HoldingResearchInput input(int size) {
     var dates = new ArrayList<LocalDate>();
     var cursor = date;
@@ -242,5 +303,53 @@ class HoldingResearchTest {
     b.setSource("FIXTURE");
     b.setSynthetic(false);
     return b;
+  }
+
+  @Test
+  void explicitUserValuationIsDatedAndCannotBypassOtherConditions() {
+    var base = input(300);
+    var thesis =
+        new com.alphascope.fundamental.dto.ValuationThesisInput(
+            base.stock().symbol(),
+            date.minusDays(1),
+            date.plusDays(30),
+            BigDecimal.valueOf(2),
+            BigDecimal.valueOf(3),
+            BigDecimal.valueOf(20),
+            BigDecimal.valueOf(30),
+            BigDecimal.valueOf(.2),
+            true,
+            "公开财报核对盈利与股本，行业倍数按用户假设",
+            "现金流持续恶化则撤销原假设",
+            "https://example.test/financial-report",
+            "EASTMONEY_FINANCIAL");
+    var input =
+        HoldingResearchInput.builder()
+            .stock(base.stock())
+            .asOf(date)
+            .expectedDates(base.expectedDates())
+            .valuationThesis(thesis)
+            .build();
+    var horizon = HoldingResearchCalculator.calculate(input).horizons().get(2);
+    var action = horizon.actions().getFirst();
+    assertNull(action.observationZone());
+    assertEquals(32.0, action.referencePrice());
+    assertNotEquals("CONDITIONAL_MATCH", action.status());
+    assertTrue(
+        action.conditions().stream().anyMatch(c -> "独立估值证据".equals(c.label()) && c.met() == null));
+    assertTrue(action.referenceLabel().contains("观察上限"));
+    assertTrue(horizon.evidence().stream().anyMatch(v -> v.contains("用户年化EPS")));
+    var expired =
+        HoldingResearchInput.builder()
+            .stock(base.stock())
+            .asOf(date.plusDays(31))
+            .expectedDates(base.expectedDates())
+            .valuationThesis(thesis)
+            .build();
+    assertNull(
+        HoldingResearchCalculator.calculate(expired).horizons().get(2).actions().stream()
+            .findFirst()
+            .map(HoldingResearchView.Action::observationZone)
+            .orElse(null));
   }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.alphascope.intelligence.mapper.ResearchObservationMapper">
+ <insert id="save">INSERT IGNORE INTO research_observation(symbol,business_date,capture_kind,evidence_json,evidence_hash) VALUES(#{symbol},#{businessDate},#{captureKind},#{evidenceJson},#{evidenceHash})</insert>
+ <select id="previous" resultType="com.alphascope.intelligence.entity.ResearchObservation">SELECT id,symbol,business_date,capture_kind,evidence_json,evidence_hash,created_at FROM research_observation WHERE symbol=#{symbol} AND business_date=#{date} AND created_at &lt; #{cutoff} AND capture_kind='LIVE' ORDER BY id DESC LIMIT 1</select>
+ <select id="forward" resultType="com.alphascope.intelligence.entity.ResearchObservation">
+ SELECT id,symbol,business_date,capture_kind,evidence_json,evidence_hash,created_at
+ FROM research_observation
+ WHERE capture_kind='LIVE' AND business_date &lt;= #{date} AND created_at &lt;= #{cutoff}
+ <if test="symbol != null">AND symbol=#{symbol}</if>
+ <if test="createdAfter != null">AND created_at &gt; #{createdAfter}</if>
+ <if test="beforeId != null">AND id &lt; #{beforeId}</if>
+ ORDER BY id DESC LIMIT 500
+ </select>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM research_observation</select>
+</mapper>

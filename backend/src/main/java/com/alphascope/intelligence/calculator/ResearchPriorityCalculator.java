@@ -176,6 +176,7 @@ public final class ResearchPriorityCalculator {
    */
   public static int order(ResearchPriority priority) {
     return switch (priority.code()) {
+      case "ORIGINAL_PLAN_RISK" -> -10;
       case "STRUCTURE_RISK" -> 0;
       case "BUSINESS_RISK" -> 10;
       case "CONFIRMED_RISK" -> 20;

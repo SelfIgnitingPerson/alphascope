@@ -31,8 +31,9 @@ bash scripts/run-docker.sh up
 - 容器中的`127.0.0.1`指向容器本身；本机MySQL通过`host.docker.internal`连接，端口默认3306。容器只获得应用专用账号，不传入MySQL管理员密码。
 - 保留LOCAL访问方式与原有用户1的数据，不改成PUBLIC、不重建账号、不清空自选或报告。
 - 项目`.runtime`挂载到容器`/app/.runtime`，脚本传入当前Mac用户UID/GID。已有BaoStock访问限制、请求预算与研究资料继续保留，不因容器重建清零。
-- Nginx与Java共用网络命名空间，Java仅监听容器回环8080，入口转发至回环；宿主机仅发布`127.0.0.1:5173`。不增加后端可信远端IP，不放宽转发头检查。
-- 仅供本机访问，不能把5173改成`0.0.0.0`用于多人或公网。公网身份、来源许可和HTTPS使用[生产部署](README.md)的独立方案。
+- Nginx与Java共用网络命名空间，Java仅监听容器回环8080，入口转发至回环；宿主机仅发布`127.0.0.1:5173`。LOCAL接受携带转发头的请求，PUBLIC继续使用真实会话鉴权。
+- 默认只发布回环端口。需要临时共享同一工作台时，可由ngrok等隧道转发5173；LOCAL不拦截转发头，访问者使用保留管理员空间。需要每位用户独立账号和资料隔离时，使用[生产部署](README.md)的PUBLIC方案。
+- 隧道使用HTTPS时，将它的完整来源加入根目录`.env`的`PUBLIC_ORIGINS`，例如`http://localhost:5173,http://127.0.0.1:5173,https://your-tunnel.ngrok-free.dev`，然后执行`bash scripts/run-docker.sh start`加载配置。来源只含协议和主机，不含页面路径；隧道地址变化后同步更新，避免写请求被浏览器来源检查拒绝。
 - 自动备份继续关闭；启动会执行正常的Flyway校验与队列恢复，是否启用行情定时任务沿用根目录`SCHEDULER_ENABLED`。
 
 ## 常见故障

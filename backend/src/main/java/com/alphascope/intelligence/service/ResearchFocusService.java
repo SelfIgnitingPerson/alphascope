@@ -10,7 +10,7 @@ import com.alphascope.intelligence.vo.ResearchFocusView;
  */
 public interface ResearchFocusService {
   /**
-   * 按自选优先级分页核对两期研究；单只失败不能遮住其他股票。
+   * 先核对全部自选两期研究并按风险排序，再分页；单只失败不能遮住其他股票。
    *
    * @param query 截止日期与分页
    * @return 本页优先事项及完整自选数量

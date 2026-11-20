@@ -31,9 +31,7 @@ public interface MarketBreadthMapper {
   String coverageRaw(long id);
 
   /**
-   * 保存沪深 A 股市场截面的不可变版本，相同内容重复采集时忽略新增。
-   *
-   * <p>范围固定为 SH_SZ_A、来源必须明确且与全部原价记录一致，不将北交所或完整全 A 覆盖视为已接入。
+   * 保存已核验市场截面的不可变版本，相同内容重复采集时忽略新增。
    *
    * @param snapshot 交易日、内容指纹、统计指标 JSON、原始证据 JSON 及实际采集时刻
    */
@@ -54,4 +52,12 @@ public interface MarketBreadthMapper {
    * @return 精确快照或null
    */
   MarketBreadthSnapshot fullForDate(ResearchSnapshotQuery query);
+
+  /**
+   * 读取窗口内最近一次已导入全 A 历史的来源。
+   *
+   * @param date 研究截止日
+   * @return 历史归档来源，窗口内没有档案时返回 null
+   */
+  String latestImportedSource(LocalDate date);
 }

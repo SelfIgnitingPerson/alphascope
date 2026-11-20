@@ -9,6 +9,7 @@ it('shows only the user page, filters without new requests and preserves researc
     page: 1,
     size: 10,
     total: 12,
+    positionRiskEnabled: false,
     items: [
       {
         symbol: '600000.SH',
@@ -55,7 +56,9 @@ it('shows only the user page, filters without new requests and preserves researc
       expect.any(AbortSignal),
     );
     expect(wrapper.text()).toContain('2 / 12');
-    expect(wrapper.text()).toContain('事项仅在本页按风险排序');
+    expect(wrapper.text()).toContain('先按风险级别排序');
+    expect(wrapper.text()).toContain('当前依据为自选和待处理原计划');
+    expect(wrapper.text()).toContain('失效条件');
     const link = wrapper.get('.focus-item a').attributes('data-to');
     expect(link).toContain('2026-11-17');
     expect(link).toContain('MEDIUM');

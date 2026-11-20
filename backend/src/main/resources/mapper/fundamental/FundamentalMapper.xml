@@ -25,7 +25,7 @@
       f.fetched_at,
       f.content_hash,
       f.source_url,
-      f.raw_json
+      f.raw_json, f.raw_payload
     FROM financial_report f
     JOIN instrument i
       ON i.id=f.instrument_id

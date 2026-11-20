@@ -192,4 +192,13 @@ public interface MarketService {
    * @throws IllegalStateException 日历存在缺口或未知保存时刻
    */
   Set<LocalDate> replayCalendar(DateRangeRequest request);
+
+  /**
+   * 读取连续区间每个自然日的最新真实日历证据及来源，不联网。
+   *
+   * @param request 明确闭区间
+   * @return 含休市日及来源的真实证据，缺口抛错
+   */
+  java.util.List<com.alphascope.market.dto.CalendarRevisionDO> calendarEvidence(
+      DateRangeRequest request);
 }

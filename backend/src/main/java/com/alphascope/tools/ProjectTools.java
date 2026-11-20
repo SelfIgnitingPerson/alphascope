@@ -62,7 +62,7 @@ public final class ProjectTools {
   public static void main(String[] args) throws Exception {
     if (args.length == 0) {
       throw new IllegalArgumentException(
-          "package | validate-research 开始 结束 [all|technical|market] | export-research-validation 任务编号 | reproduce-research-validation | backup | verify-backup | upgrade-schema | check | probe [baostock|sina] [日期] | replay 日期... | verify-real 日期 | verify-theme-sources | sync-theme-research 日期 | warm-market-history 日期");
+          "package | validate-research 开始 结束 [all|technical|market] | export-research-validation 任务编号 | reproduce-research-validation | backup | verify-backup | upgrade-schema | check | probe [baostock|sina] [日期] | replay 日期... | verify-real 日期 | verify-theme-sources | sync-theme-research 日期 | warm-market-history 日期 | check-full-market 日期 | import-full-market 日期 | rebuild-full-market 开始 结束");
     }
     Path root = Path.of(System.getProperty("alphascope.root", ".")).toAbsolutePath().normalize();
     switch (args[0]) {
@@ -103,6 +103,16 @@ public final class ProjectTools {
       case "warm-market-history" -> {
         require(args.length == 2, "请提供一个历史预热业务日期");
         warmMarketHistory(LocalDate.parse(args[1]));
+      }
+      case "check-full-market", "import-full-market" -> {
+        require(args.length == 2, "请提供目标交易日，档案固定放入 .runtime/full-market-import");
+        HistoricalFullMarketImportTool.run(
+            root, LocalDate.parse(args[1]), "import-full-market".equals(args[0]));
+      }
+      case "rebuild-full-market" -> {
+        require(args.length == 3, "请提供已归档全 A 观察的起止日期");
+        HistoricalFullMarketImportTool.rebuildStored(
+            LocalDate.parse(args[1]), LocalDate.parse(args[2]));
       }
       case "probe" -> probe(args);
       case "check" -> check();

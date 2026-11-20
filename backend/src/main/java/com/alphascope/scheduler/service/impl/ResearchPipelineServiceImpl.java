@@ -64,6 +64,15 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
 
   @org.springframework.beans.factory.annotation.Autowired private FullMarketService fullMarket;
 
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.alphascope.planning.service.PlanFollowupService planFollowups;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.alphascope.intelligence.service.ResearchObservationService observationJournal;
+
+  @org.springframework.beans.factory.annotation.Autowired
+  private com.alphascope.intelligence.service.ForwardValidationService forwardValidation;
+
   public ResearchPipelineServiceImpl(
       MarketService market,
       PortfolioService portfolio,
@@ -135,12 +144,7 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
         if (!market.isOpen(requested))
           return new PipelineOutcome(
               JobStatus.SKIPPED, DataQualityStatus.NOT_APPLICABLE, "目标日不是已核验交易日", null);
-        run.stage(
-            "MARKET_OBSERVATION",
-            () -> {
-              breadth.sync(requested);
-              observations.sync(requested);
-            });
+        run.stage("MARKET_OBSERVATION", () -> observations.sync(requested));
         var observation = observations.view(requested);
         if (observation.analysis() == null
             || !requested.equals(observation.analysis().businessDate())) {
@@ -204,7 +208,8 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
             }
             breadth.sync(date);
           });
-      run.stage("MARKET_OBSERVATION", () -> observations.calculateStored(date));
+      run.stage("FULL_MARKET_ANALYSIS", () -> fullMarket.refresh(date));
+      run.stage("MARKET_OBSERVATION", () -> observations.refreshAfterClose(date));
       var ingested = inputs.state(requested, market.synthetic());
       state.put("financials", ingested.getFinancials());
       state.put("marketBreadth", ingested.getMarketBreadth());
@@ -229,6 +234,16 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
               }
             }
           });
+      run.stage(
+          "PLAN_REVIEW",
+          () -> {
+            var captured = observationJournal.capture(date);
+            if (!captured.issues().isEmpty())
+              org.slf4j.LoggerFactory.getLogger(getClass())
+                  .warn("每日判断留档有缺项 date={} issues={}", date, captured.issues());
+            planFollowups.reviewAll(date);
+            forwardValidation.evaluate(date);
+          });
       long[] report = {0};
       run.stage("REPORT", () -> report[0] = reports.generate(type, date, id));
       run.stage(
@@ -249,7 +264,25 @@ public class ResearchPipelineServiceImpl implements ResearchPipelineService {
           e.getMessage(),
           null);
     } catch (Exception e) {
+      // 采集失败也追加明确的资料不足待办；不把缺失行情留成无提醒的旧结论。
+      if (java.util.Set.of("DAILY", "WEEKLY").contains(type) && !market.synthetic()) {
+        try {
+          run.stage("PLAN_REVIEW", () -> planFollowups.reviewAll(run.date));
+        } catch (com.alphascope.common.task.TaskStoppedException stopped) {
+          return new PipelineOutcome(
+              JobStatus.valueOf(stopped.getReason().name()),
+              DataQualityStatus.UNAVAILABLE,
+              stopped.getMessage(),
+              null);
+        } catch (RuntimeException followupFailure) {
+          org.slf4j.LoggerFactory.getLogger(getClass())
+              .warn("采集失败后的计划跟踪未完成 job={}", id, followupFailure);
+        }
+      }
       String message = e.getMessage();
+      var diagnostic = com.alphascope.common.diagnostic.FailureDiagnostics.from(e);
+      if (diagnostic.code().startsWith("DATABASE_"))
+        message = diagnostic.title() + "：" + diagnostic.reason() + "。" + diagnostic.action();
       return new PipelineOutcome(
           JobStatus.FAILED,
           run.aggregateQuality(),

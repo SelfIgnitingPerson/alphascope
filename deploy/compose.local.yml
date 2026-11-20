@@ -12,6 +12,7 @@ services:
       SERVER_SHUTDOWN: graceful
       SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 30s
       ACCESS_MODE: LOCAL
+      PUBLIC_ORIGINS: ${PUBLIC_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       MYSQL_HOST: host.docker.internal
       MYSQL_PORT: ${MYSQL_PORT:-3306}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-alphascope}
@@ -56,7 +57,7 @@ services:
     image: nginx:1.28-alpine
     user: "10001:10001"
     entrypoint: ["nginx", "-g", "daemon off;"]
-    # 后端看到真实的容器内回环连接，无需扩大LOCAL信任地址或放宽鉴权。
+    # 与Java共用网络命名空间，转发入口无需额外开放后端端口。
     network_mode: service:app
     depends_on:
       app: { condition: service_healthy, restart: true }

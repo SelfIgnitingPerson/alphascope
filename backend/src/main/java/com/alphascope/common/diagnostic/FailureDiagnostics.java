@@ -145,6 +145,27 @@ public final class FailureDiagnostics {
     if (key.equals("BAOSTOCK_ACCESS_RESTRICTED_10001011")) {
       return BaoStockErrors.diagnose("10001011", null);
     }
+    if (key.equals("DATABASE_SORT_MEMORY"))
+      return new FailureDiagnosis(
+          key,
+          "数据库读取大字段时排序内存不足",
+          "数据库返回1038，本次排序查询未完成；已存原始截面仍然保留",
+          IMPACT,
+          "维护人员先定位主键再读取原文，修复后在原任务重试；不直接放大MySQL全局内存配置。");
+    if (key.startsWith("FULL_A_"))
+      return new FailureDiagnosis(
+          key,
+          "三所全A证据未齐",
+          switch (key) {
+            case "FULL_A_ROSTER_DATE_MISSING" -> "所选日期没有可匹配的北交所供应商清单，不能用当前名单倒填历史";
+            case "FULL_A_ROSTER_PROOF_MISSING" -> "截面缺少原始分页数量或来源证明，不能确认清单完整";
+            case "FULL_A_EXCHANGE_MEMBERS_MISMATCH" -> "沪深北目录与报价中的交易所成员未对齐，尚不能证明三所覆盖";
+            case "FULL_A_DAILY_COVERAGE_INCOMPLETE" -> "当日目录、行情或停牌证据未通过完整截面核验";
+            case "FULL_A_FACTOR_WINDOW_INCOMPLETE" -> "价格来源的同源复权因子没有覆盖完整历史窗口";
+            default -> "三所成员格式、去重或输入证明未通过核验";
+          },
+          IMPACT,
+          "到行情通道查看三所缺口日期和能力；优先复用同日归档，取得真实历史资料后再补齐，不反复用当前截面请求过去日期。");
     if (CATALOG.containsKey(key)) return CATALOG.get(key);
     if (key.contains("ACCESS_RESTRICTED") || key.equals("10001011"))
       return CATALOG.get("ACCESS_RESTRICTED");
@@ -217,6 +238,13 @@ public final class FailureDiagnostics {
           "上市日期、退市日期或证券身份没有取得可靠对应证据；旧精选层日期不能直接当成北交所上市日。",
           "暂停该证券完整历史初始化，不把上市前区间当缺失行情。",
           "管理员核对公开资料后，在证券生命周期维护入口补齐日期和HTTPS依据，再重试；不以首条K线日期代替上市日期。");
+    if (key.equals("DATABASE_SORT_MEMORY"))
+      return new FailureDiagnosis(
+          key,
+          "数据库读取大字段时排序内存不足",
+          "数据库返回1038，本次排序查询未完成；已存原始截面仍然保留",
+          IMPACT,
+          "维护人员先定位主键再读取原文，修复后在原任务重试；不直接放大MySQL全局内存配置。");
     if (key.startsWith("FULL_A_"))
       return new FailureDiagnosis(
           key,
@@ -231,6 +259,13 @@ public final class FailureDiagnostics {
           "上市日期、证券身份或退市边界尚未通过来源核验；旧精选层日期不能直接当作北交所上市日。",
           "暂停该证券完整历史采集，不把上市前区间当缺失，也不把缺失当停牌。",
           "管理员在运行检查补录公开公告依据与上市/退市日期后重试；不要拿首条K线代替上市日。");
+    if (key.equals("DATABASE_SORT_MEMORY"))
+      return new FailureDiagnosis(
+          key,
+          "数据库读取大字段时排序内存不足",
+          "数据库返回1038，本次排序查询未完成；已存原始截面仍然保留",
+          IMPACT,
+          "维护人员先定位主键再读取原文，修复后在原任务重试；不直接放大MySQL全局内存配置。");
     if (key.startsWith("FULL_A_"))
       return new FailureDiagnosis(
           key,
@@ -259,6 +294,14 @@ public final class FailureDiagnostics {
           IMPACT,
           "查看已归档日期，逐日积累真实快照；没有可靠历史来源时保留缺项，不伪造历史成分。");
     if (key.equals("PUBLIC_MARKET_NOT_CLOSED")) return CATALOG.get("CLOSE_NOT_READY");
+    if (key.equals("FULL_A_DAILY_COVERAGE_INCOMPLETE"))
+      return new FailureDiagnosis(
+          key, "三所行情或停牌记录不齐", "通道响应未覆盖当日全部应有证券。", IMPACT, "检查同日交易和停牌缺项，使用能提供完整截面的通道重新核验。");
+    if (key.equals("FULL_A_ROSTER_DATE_MISSING")
+        || key.equals("FULL_A_ROSTER_PROOF_MISSING")
+        || key.equals("FULL_A_EXCHANGE_MEMBERS_MISMATCH"))
+      return new FailureDiagnosis(
+          key, "三所清单核验未通过", "证券目录的日期、完整性或北交所成员未与独立目录对齐。", IMPACT, "检查所选日真实证券清单与通道覆盖，避免用其他日期清单替代。");
     if (key.equals("PUBLIC_MARKET_NOT_TRADING_DAY") || key.equals("NOT_TRADING_DAY"))
       return new FailureDiagnosis(
           "NOT_TRADING_DAY", "所选日期不是交易日", "该日期不产生正常交易日截面。", IMPACT, "明确选择有效交易日，不把非交易日行情补成0。");
@@ -304,6 +347,8 @@ public final class FailureDiagnostics {
   public static FailureDiagnosis from(Throwable failure) {
     FailureDiagnosis fallback = CATALOG.get("UNCLASSIFIED_FAILURE");
     for (int depth = 0; failure != null && depth < 8; depth++, failure = failure.getCause()) {
+      if (failure instanceof java.sql.SQLException sql && sql.getErrorCode() == 1038)
+        return code("DATABASE_SORT_MEMORY");
       if (failure instanceof BaoStockApiException api) {
         return BaoStockErrors.diagnose(api);
       }
@@ -380,10 +425,15 @@ public final class FailureDiagnostics {
     var reasons = new java.util.ArrayList<String>();
     var actions = new java.util.LinkedHashSet<String>();
     for (String item : list.split(",")) {
-      String[] pair = item.split(":", 2);
-      if (pair.length != 2 || pair[1].equals("UNSUPPORTED")) continue;
+      String[] pair = item.split(":", 3);
+      if (pair.length < 2 || pair[1].equals("UNSUPPORTED")) continue;
+      if (pair[1].equals("FULL_A_SCOPE_UNSUPPORTED")) {
+        reasons.add(sourceName(pair[0]) + "：缺少沪深北三所截面能力，已跳过");
+        continue;
+      }
       var diagnosis = code(pair[1]);
       if (diagnosis == null) continue;
+      String attempts = pair.length == 3 && pair[2].matches("[2-3]") ? "（已尝试" + pair[2] + "次）" : "";
       reasons.add(
           sourceName(pair[0])
               + "："
@@ -391,9 +441,8 @@ public final class FailureDiagnostics {
                   ? "采集未成功，记录中没有可确认的具体原因"
                   : pair[1].equals("UNSUPPORTED")
                       ? "不承担本项行情，已正常跳过"
-                      : pair[1].equals("ACCESS_RESTRICTED")
-                          ? "本机仍保留此前访问限制的保护"
-                          : diagnosis.title()));
+                      : pair[1].equals("ACCESS_RESTRICTED") ? "本机仍保留此前访问限制的保护" : diagnosis.title())
+              + attempts);
       if (actions.size() < 3) actions.add(diagnosis.action());
     }
     if (reasons.isEmpty())

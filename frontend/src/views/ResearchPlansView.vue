@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
+import ForwardValidationPanel from '../components/research/ForwardValidationPanel.vue';
 import {
   planActionLabels,
   planReviewLabels as statuses,
   planReviewExplanations,
   researchMethodLabel,
 } from '../content/plan-labels';
+import PlanTodoPanel from '../components/research/PlanTodoPanel.vue';
 import ObservationSummary from '../components/common/ObservationSummary.vue';
 import { planObservation } from '../utils/observation-summaries';
 import TermHelp from '../components/common/TermHelp.vue';
@@ -34,10 +36,10 @@ const horizon = ref('');
 const archiveStatus = ref('active');
 const plan = ref<ResearchPlan>();
 const { data, loading, error, reload } = useResource(
-  (signal) => getPlans({ ...filters.value, page: page.value, size: 20 }, signal),
+  (signal) => getPlans({ ...filters.value, asOf: props.date, page: page.value, size: 20 }, signal),
   {
-    watch: [() => page.value, () => filters.value, () => props.refreshToken],
-    identity: () => JSON.stringify({ ...filters.value, page: page.value }),
+    watch: [() => page.value, () => filters.value, () => props.date, () => props.refreshToken],
+    identity: () => JSON.stringify({ ...filters.value, asOf: props.date, page: page.value }),
   },
 );
 const mutation = useMutation();
@@ -135,6 +137,11 @@ watch(
 </script>
 <template>
   <div class="page-stack">
+    <PlanTodoPanel
+      :date="props.date"
+      :refresh-token="props.refreshToken"
+      @changed="reload"
+    />
     <div class="notice notice--subtle">
       在个股研究中保存计划；这里保留原价位、依据与方法。选择研究日后显式复核，刷新只读取。没有自动下单或个人仓位建议。
     </div>
@@ -380,6 +387,12 @@ watch(
             归档并保留证据
           </el-button>
         </div>
+        <ForwardValidationPanel
+          :date="date"
+          :refresh-token="refreshToken"
+          :symbol="plan.research.symbol"
+          :plan-id="plan.id"
+        />
         <details class="reading-details">
           <summary>查看原始条件、参考价与失效前提</summary>
           <template

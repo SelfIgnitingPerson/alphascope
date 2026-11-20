@@ -8,13 +8,15 @@ const props = defineProps<{
   horizon: string;
   actionCode: string;
   actionTitle?: string;
+  evidenceVersion?: string;
 }>();
 const mutation = useMutation();
 const saved = ref('');
 const savedId = ref<number>();
 const submitted = ref('');
 const identity = computed(
-  () => `${props.symbol}:${props.date}:${props.horizon}:${props.actionCode}`,
+  () =>
+    `${props.symbol}:${props.date}:${props.horizon}:${props.actionCode}:${props.evidenceVersion || ''}`,
 );
 async function save() {
   saved.value = '';
@@ -39,9 +41,16 @@ async function save() {
   <div class="plan-save">
     <el-button
       :loading="mutation.busy.value"
+      :disabled="saved === identity"
       @click="save"
     >
-      {{ actionTitle ? `保存「${actionTitle}」观察方案` : '保存当前观察方案' }}
+      {{
+        saved === identity
+          ? '该方案已保存'
+          : actionTitle
+            ? `保存「${actionTitle}」观察方案`
+            : '保存当前观察方案'
+      }}
     </el-button>
     <p
       v-if="mutation.error.value && submitted === identity"

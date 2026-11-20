@@ -17,6 +17,31 @@ class FreeMarketHttpTest {
   @TempDir Path root;
 
   @Test
+  void sinaBatchRetainsDateAndConvertsShareVolumeWithoutAssumingMissingRows() {
+    var fields = new String[39];
+    java.util.Arrays.fill(fields, "0");
+    fields[0] = "北交所测试样本";
+    for (int i = 1; i <= 5; i++) fields[i] = "10.20";
+    fields[8] = "20000";
+    fields[9] = "204000";
+    fields[30] = "2026-11-19";
+    fields[31] = "15:30:00";
+    String payload = "var hq_str_bj920085=\"" + String.join(",", fields) + "\";";
+    var quote =
+        SinaSnapshotResearchProvider.parseBatch(payload, java.util.Set.of("bj920085")).getFirst();
+    assertEquals("920085", quote.path("f12").asText());
+    assertEquals(200, quote.path("f5").intValue());
+    assertEquals(204000, quote.path("f6").intValue());
+    assertEquals(
+        Instant.parse("2026-11-19T07:30:00Z").getEpochSecond(), quote.path("f124").asLong());
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            SinaSnapshotResearchProvider.parseBatch(
+                payload, java.util.Set.of("bj920085", "sz002837")));
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void restrictedSupplierIsIsolatedAndPersisted() throws Exception {
     var clock = Clock.fixed(Instant.parse("2026-11-17T08:00:00Z"), ZoneOffset.UTC);

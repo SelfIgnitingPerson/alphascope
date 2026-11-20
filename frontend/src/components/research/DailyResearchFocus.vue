@@ -1,13 +1,27 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { captureObservation } from '../../api/observations';
+import { useMutation } from '../../composables/useMutation';
+import { number, percent } from '../../utils/format';
 import SectionCard from '../common/SectionCard.vue';
-import ObservationSummary from '../common/ObservationSummary.vue';
 import AsyncState from '../common/AsyncState.vue';
 import { useResource } from '../../composables/useResource';
 import { getResearchFocus } from '../../api/research-focus';
 import type { PageProps } from '../../types/models';
 const props = defineProps<PageProps>();
 const page = ref(1);
+const capture = useMutation();
+const captureNote = ref('');
+async function saveDay() {
+  const identity = props.date;
+  captureNote.value = '';
+  await capture.run(async () => {
+    const result = await captureObservation(identity);
+    if (identity !== props.date) return;
+    captureNote.value = `新增${result.saved}份，复用${result.reused}份。${result.issues.join('；') || (result.captureKind === 'RETROSPECTIVE' ? '所选日为事后回看，已留档但不会补造前瞻信号。' : '实际当日判断与执行协议已留档；旧记录保留。')}`;
+    await resource.reload();
+  });
+}
 const category = ref('ALL');
 const expanded = ref(false);
 watch([category, page, () => props.date], () => {
@@ -52,14 +66,42 @@ const items = computed(() =>
 const visibleItems = computed(() => (expanded.value ? items.value : items.value.slice(0, 3)));
 const count = (code: string) =>
   (resource.data.value?.items || []).filter((item) => matches(item, code)).length;
+function positionLabel(item: FocusItem) {
+  const impact = item.positionImpact;
+  if (resource.data.value?.positionRiskEnabled === false) return '当前按自选观察';
+  if (impact?.weight != null) return `占同日登记资产 ${percent(impact.weight)}`;
+  if (impact?.state === 'FLAT') return '已登记空仓';
+  if (impact?.state === 'HELD' || impact?.state === 'ESTIMATED')
+    return '已登记持仓，仓位占比待核对';
+  return '持仓影响待核对';
+}
+
+function invalidation(item: FocusItem) {
+  if (item.positionImpact?.referenceState === 'BREACHED')
+    return '原结构参考已触及，重新评估原计划。';
+  if (item.originalPlanId) return '以原计划保存的价格、经营和失效条件为准。';
+  return '打开对应持有周期核对失效条件。';
+}
 const leading = computed(() => resource.data.value?.items[0]);
 </script>
 <template>
   <SectionCard
     title="今天先看这几件事"
-    description="先核对风险边界与已确认组合，再跟踪弱观察和候选条件。轻重来自现有证据，不是亏损概率。"
+    description="先看前三项：发生了什么变化、对已登记持仓影响多大、下一步核对什么。轻重来自证据，不是亏损概率。"
   >
     <template #actions>
+      <el-button
+        :loading="capture.busy.value"
+        @click="saveDay"
+      >
+        保存本日判断
+      </el-button>
+      <RouterLink
+        :to="{ path: '/portfolio', query: { date } }"
+        class="text-link"
+      >
+        更新我的持仓 →
+      </RouterLink>
       <RouterLink
         to="/plans"
         class="text-link"
@@ -67,6 +109,20 @@ const leading = computed(() => resource.data.value?.items[0]);
         跟踪已保存计划 →
       </RouterLink>
     </template>
+    <p
+      v-if="captureNote"
+      role="status"
+      class="help-text"
+    >
+      {{ captureNote }}
+    </p>
+    <p
+      v-if="capture.error.value"
+      role="alert"
+      class="notice notice--warning"
+    >
+      {{ capture.error.value }}
+    </p>
     <AsyncState
       :loading="resource.loading.value"
       :error="resource.error.value"
@@ -74,9 +130,90 @@ const leading = computed(() => resource.data.value?.items[0]);
       @retry="resource.reload"
     >
       <template v-if="resource.data.value">
+        <p
+          v-for="issue in resource.data.value.issues || []"
+          :key="issue"
+          class="notice notice--warning"
+        >
+          {{ issue }}
+        </p>
         <p class="focus-scope">
           研究日 {{ resource.data.value.asOf }} · 本页核对 {{ resource.data.value.items.length }} /
-          {{ resource.data.value.total }} 只启用自选。 按自选优先级分页，事项仅在本页按风险排序。
+          {{ resource.data.value.total }}
+          只标的。先按风险级别排序。
+          <strong v-if="resource.data.value.positionRiskEnabled === false">
+            当前依据为自选和待处理原计划
+          </strong>
+          <strong v-else-if="resource.data.value.portfolioImpact?.knownWeight != null">
+            当前依据包含已核对持仓
+          </strong>
+          <strong v-else>当前持仓影响待核对</strong>
+        </p>
+        <div
+          v-if="resource.data.value.portfolioImpact"
+          class="focus-portfolio"
+        >
+          <strong>我的已登记组合</strong>
+          <p>
+            正持仓 {{ resource.data.value.portfolioImpact.heldCount }} 只 · 日期或行情待核对
+            {{ resource.data.value.portfolioImpact.pendingCount }} 只 · 已核对市值
+            {{ number(resource.data.value.portfolioImpact.knownMarketValue) }} 元 ·
+            占同日登记投资资产 {{ percent(resource.data.value.portfolioImpact.knownWeight) }}
+          </p>
+          <div class="focus-stress">
+            <span>已登记现金 {{ number(resource.data.value.portfolioImpact.cashBalance) }} 元</span>
+            <span>
+              扣用款预留后现金 {{ number(resource.data.value.portfolioImpact.cashAfterReserve) }} 元
+            </span>
+            <span>
+              已知股票共同下跌10%：约
+              {{ number(resource.data.value.portfolioImpact.stress10Loss) }} 元
+            </span>
+            <span>
+              共同下跌20%：约 {{ number(resource.data.value.portfolioImpact.stress20Loss) }} 元
+            </span>
+          </div>
+          <p
+            v-if="resource.data.value.portfolioImpact.referenceBudgetStatus === 'BREACHED'"
+            class="reference-price"
+          >
+            已有持仓触及结构参考，不能以0元价差表示风险较低。
+          </p>
+          <details class="reading-details">
+            <summary>查看相关风险分组与情景边界</summary>
+            <p
+              v-for="group in resource.data.value.portfolioImpact.riskGroups || []"
+              :key="group.label"
+            >
+              {{ group.label }}：{{ number(group.marketValue) }} 元 · 占登记资产
+              {{ percent(group.weight) }}
+            </p>
+            <p
+              v-for="note in resource.data.value.portfolioImpact.limitations || []"
+              :key="note"
+            >
+              {{ note }}
+            </p>
+          </details>
+          <small>
+            这是已知部分，不代表完整账户；行业集中度与关联敞口尚待补齐；用款前提需在持仓页登记并核对。超100%时请检查登记资产或持仓，不能作为加仓空间。
+          </small>
+        </div>
+        <p
+          v-else-if="resource.data.value.positionRiskEnabled !== false"
+          class="help-text"
+        >
+          更新同日持仓与行情后可核对组合影响。
+        </p>
+        <p
+          v-if="resource.data.value.knowledgeDate && resource.data.value.knowledgeDate !== date"
+          class="help-text"
+        >
+          个人资料视角截至 {{ resource.data.value.knowledgeDate }}，用研究日
+          {{ date }} 收盘估算当前影响；不代表该日历史账户。
+        </p>
+        <p class="help-text">
+          变化口径优先采用上期实际留档；没有原留档时明确标记当前规则复算。保存本日判断只留存研究和执行假设，不等于保存个人交易计划。
         </p>
         <p
           v-if="leading"
@@ -115,34 +252,63 @@ const leading = computed(() => resource.data.value?.items[0]);
               <small>{{ item.symbol }}</small>
             </div>
             <div class="focus-item__body">
-              <ObservationSummary
-                v-if="item.priorities?.length"
-                :priority="item.priorities[0]"
-                compact
-              />
-              <template v-else>
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.explanation }}</p>
-              </template>
-              <small
-                v-if="item.changeLabel"
-                class="focus-change"
-              >
-                {{ item.changeLabel }}
-              </small>
-              <small>
-                行情 {{ item.quoteDate || '暂无' }}
-                <template v-if="item.comparisonDate">· 上期 {{ item.comparisonDate }}</template>
-              </small>
+              <strong>{{ item.priorities?.[0]?.title || item.title }}</strong>
+              <dl class="focus-checks">
+                <dt>变化</dt>
+                <dd>{{ item.changeLabel || item.explanation }}</dd>
+                <dt>仓位影响</dt>
+                <dd>{{ positionLabel(item) }}</dd>
+                <dt>失效条件</dt>
+                <dd>{{ invalidation(item) }}</dd>
+                <dt>今天核对</dt>
+                <dd>{{ item.priorities?.[0]?.nextChecks[0] || '核对行情日期和原始资料。' }}</dd>
+              </dl>
+              <details class="reading-details">
+                <summary>查看证据、价格日期与核对条件</summary>
+                <p
+                  v-for="fact in item.priorities?.[0]?.facts || []"
+                  :key="fact"
+                >
+                  {{ fact }}
+                </p>
+                <p v-if="item.priorities?.[0]?.explanation">{{ item.priorities[0].explanation }}</p>
+                <p
+                  v-for="check in [
+                    ...(item.priorities?.[0]?.nextChecks.slice(1) || []),
+                    ...(item.positionImpact?.checks || []),
+                  ]"
+                  :key="check"
+                >
+                  {{ check }}
+                </p>
+                <p v-if="item.positionImpact?.marketValue != null">
+                  已登记市值 {{ number(item.positionImpact.marketValue) }} 元
+                  <template v-if="item.positionImpact.unrealizedPnl != null">
+                    · 账面盈亏 {{ number(item.positionImpact.unrealizedPnl) }} 元
+                  </template>
+                </p>
+                <p>
+                  行情 {{ item.quoteDate || '暂无' }}
+                  <template v-if="item.comparisonDate">· 上期 {{ item.comparisonDate }}</template>
+                  <template v-if="item.comparisonBasis === 'FROZEN_DAILY'">
+                    · 对照上期实际留档
+                  </template>
+                  <template v-else-if="item.comparisonDate">· 按当前规则复算</template>
+                </p>
+              </details>
             </div>
             <RouterLink
-              :to="{
-                path: `/stocks/${item.symbol}`,
-                query: { date, ...(item.horizon ? { horizon: item.horizon } : {}) },
-              }"
+              :to="
+                item.originalPlanId
+                  ? { path: '/plans', query: { date, plan: item.originalPlanId } }
+                  : {
+                      path: `/stocks/${item.symbol}`,
+                      query: { date, ...(item.horizon ? { horizon: item.horizon } : {}) },
+                    }
+              "
               class="text-link"
             >
-              查看依据 →
+              {{ item.originalPlanId ? '查看原计划' : '查看依据' }} →
             </RouterLink>
           </article>
         </div>
@@ -154,7 +320,7 @@ const leading = computed(() => resource.data.value?.items[0]);
           {{
             resource.data.value.total
               ? '本页没有此类事项，可切换分类或查看下一页。'
-              : '还没有启用的自选股，先添加关注股票，再查看每日研究重点。'
+              : '还没有启用的自选股，先添加关注股票或登记持仓，再查看每日研究重点。'
           }}
           <RouterLink
             v-if="!resource.data.value.total"
@@ -201,7 +367,7 @@ const leading = computed(() => resource.data.value?.items[0]);
         <details class="reading-details">
           <summary>这些事项怎样判断？</summary>
           <p>
-            结构参考触及优先核对，其次是经营风险或已确认的组合；仅有弱走势、量能尚未确认时归入观察跟踪。只有同源、同方法且完整的上期对照，才能标记条件“新满足”。这里比较的是当前已保存版本，不证明历史时点已可得，也不代表策略已验证有效。其他周期仍需进入个股查看。
+            优先核对已触及的风险参考、经营风险和已确认的风险组合。仅有弱走势或量能待确认时，继续跟踪。只有上期与本期同源、同方法且资料完整，才能标记条件“新满足”。每项都注明对照来自上期原判断还是当前规则复算。完整周期与条件见个股研究。
           </p>
         </details>
       </template>
@@ -209,6 +375,31 @@ const leading = computed(() => resource.data.value?.items[0]);
   </SectionCard>
 </template>
 <style scoped>
+.focus-checks {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 14px;
+  margin: 10px 0;
+}
+.focus-checks dt {
+  font-weight: 600;
+}
+.focus-checks dd {
+  margin: 0;
+}
+.focus-portfolio {
+  padding: 12px 14px;
+  border: 1px solid #e2e9ef;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.focus-stress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 13px;
+  margin: 10px 0;
+}
 .focus-scope {
   font-size: 12px;
   color: #738398;
@@ -276,14 +467,9 @@ const leading = computed(() => resource.data.value?.items[0]);
   background: #f4f7fa;
   font-size: 13px;
 }
-.focus-leading span,
-.focus-change {
+.focus-leading span {
   color: #738398;
   font-size: 12px;
-}
-.focus-change {
-  display: block;
-  margin: 8px 0 4px;
 }
 .focus-expand {
   margin-top: 12px;

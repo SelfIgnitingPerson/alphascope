@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import SectionCard from '../common/SectionCard.vue';
 import TermHelp from '../common/TermHelp.vue';
 import StateBadge from '../common/StateBadge.vue';
@@ -33,6 +34,21 @@ const universe = useResource((signal) => getUniverseCoverage(props.date, signal)
   watch: [() => props.date, () => props.refreshToken],
   identity: () => props.date,
 });
+const progress = computed(() => {
+  const items = Object.entries(data.value?.dimensions ?? {});
+  const confirmed = items.filter(([, dimension]) => dimension.status === 'AVAILABLE');
+  return {
+    available: confirmed.length,
+    total: items.length,
+    points: confirmed.reduce((sum, [, dimension]) => sum + (dimension.score ?? 0), 0),
+    gaps: items
+      .filter(([, dimension]) => dimension.status !== 'AVAILABLE')
+      .map(
+        ([key, dimension]) =>
+          `${names[key] || key}（${dimension.status === 'PROXY' ? '只有样本口径' : '缺少合格输入'}）`,
+      ),
+  };
+});
 </script>
 <template>
   <SectionCard
@@ -62,6 +78,16 @@ const universe = useResource((signal) => getUniverseCoverage(props.date, signal)
         完整全A总分：{{ data.score === null ? '尚不能评定' : data.score.toFixed(1) }} ·
         <StateBadge :value="data.state" />
         · {{ data.modelVersion }}
+      </p>
+      <p
+        v-if="data.score === null && progress.total"
+        class="notice notice--subtle"
+      >
+        已核验 {{ progress.available }} / {{ progress.total }} 项。
+        <template v-if="progress.available">
+          已核验分项合计 {{ progress.points.toFixed(1) }} / {{ progress.available * 20 }} 分。
+        </template>
+        <template v-if="progress.gaps.length">待补 {{ progress.gaps.join('、') }}。</template>
       </p>
       <p
         v-if="universe.data.value"

@@ -74,6 +74,292 @@ class PublicTenantIntegrationTest {
   @Autowired com.alphascope.operations.mapper.PlatformCapacityMapper platform;
   @MockitoBean SourceLicenseService licenses;
 
+  @Autowired com.alphascope.planning.mapper.ResearchPlanMapper planMapper;
+  @Autowired com.alphascope.planning.service.ResearchPlanService plans;
+  @Autowired com.alphascope.fundamental.service.InvestmentEvidenceService investmentEvidence;
+
+  @Autowired com.alphascope.fundamental.mapper.FinancialSyncMapper financialSyncMapper;
+  @Autowired com.alphascope.fundamental.service.FundamentalService financials;
+  @Autowired com.alphascope.market.service.MarketService market;
+  @Autowired javax.sql.DataSource source;
+  @Autowired com.alphascope.intelligence.mapper.ResearchObservationMapper observationMapper;
+  @Autowired com.alphascope.intelligence.mapper.ForwardResultMapper forwardMapper;
+
+  @Test
+  void exactObservationAndForwardPayloadsRoundTripWithoutJsonNormalizationOrTenantLeakage()
+      throws Exception {
+    Actor alice = register("exactalice"), bob = register("exactbob");
+    Long observationId;
+    String raw = "{ \"x\":12345678901234567890.1234, \"research\": {\"version\":\"test\"} }";
+    try (var ignored = TenantContext.bind(alice.user)) {
+      var row = new com.alphascope.intelligence.entity.ResearchObservation();
+      row.setSymbol("300476.SZ");
+      row.setBusinessDate(LocalDate.of(2026, 10, 30));
+      row.setCaptureKind("LIVE");
+      row.setEvidenceJson(raw);
+      row.setEvidenceHash(com.alphascope.common.util.Jsons.hash(raw));
+      assertEquals(1, observationMapper.save(row));
+      var query =
+          new com.alphascope.intelligence.dto.ObservationQuery(
+              null, LocalDate.now().plusDays(1), java.time.LocalDateTime.now().plusDays(1));
+      var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+      observationId =
+          jdbc.queryForObject(
+              "SELECT id FROM research_observation WHERE tenant_id=? AND evidence_hash=?",
+              Long.class,
+              alice.user.id(),
+              row.getEvidenceHash());
+      assertEquals(
+          observationId,
+          observationMapper
+              .forward(
+                  new com.alphascope.intelligence.dto.ObservationQuery(
+                      "300476.SZ", query.date(), query.cutoff(), null, null))
+              .getFirst()
+              .getId());
+      assertTrue(
+          observationMapper
+              .forward(
+                  new com.alphascope.intelligence.dto.ObservationQuery(
+                      "300476.SZ", query.date(), query.cutoff(), null, observationId))
+              .isEmpty());
+      assertEquals(
+          raw,
+          jdbc.queryForObject(
+              "SELECT evidence_json FROM research_observation WHERE id=?",
+              String.class,
+              observationId));
+      var result = new com.alphascope.intelligence.entity.ForwardResult();
+      result.setObservationId(observationId);
+      result.setActionCode("SHORT:OPEN_PULLBACK");
+      result.setWindowDays(5);
+      result.setMetricsJson(raw);
+      result.setInputJson(raw);
+      result.setMetricsHash(com.alphascope.common.util.Jsons.hash(raw));
+      result.setContentHash(com.alphascope.common.util.Jsons.hash(raw + "\n" + raw));
+      assertEquals(1, forwardMapper.save(result));
+      var resultQuery =
+          new com.alphascope.intelligence.dto.ForwardResultQuery(
+              query.cutoff(), java.util.List.of(observationId));
+      var read = forwardMapper.summaries(resultQuery).getFirst();
+      assertTrue(
+          forwardMapper
+              .summaries(
+                  new com.alphascope.intelligence.dto.ForwardResultQuery(
+                      query.cutoff(), java.util.List.of()))
+              .isEmpty());
+      assertEquals(raw, read.getMetricsJson());
+      assertEquals(result.getMetricsHash(), read.getMetricsHash());
+    }
+    try (var ignored = TenantContext.bind(bob.user)) {
+      assertTrue(
+          forwardMapper
+              .summaries(
+                  new com.alphascope.intelligence.dto.ForwardResultQuery(
+                      java.time.LocalDateTime.now().plusDays(1), java.util.List.of(observationId)))
+              .isEmpty());
+    }
+  }
+
+  @Test
+  void financialSyncStoresExactThreeStatementEnvelopeAndItsUpstreamHash() throws Exception {
+    var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+    jdbc.update(
+        "INSERT INTO instrument(symbol,name,exchange,type,active) VALUES('600999.SH','精度测试股','SH','STOCK',1)");
+    var now = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+    String raw =
+        "{ \"income\":{\"BASIC_EPS\":1.23456789012345},\"cashflow\":{},\"balance\":{\"SHARE_CAPITAL\":123456789012345.1234} }";
+    var statement =
+        new com.alphascope.fundamental.provider.EastmoneyFinancialProvider.Statement(
+            LocalDate.of(2026, 9, 30),
+            "Q3_CUMULATIVE",
+            now.minusDays(2),
+            now.minusDays(1),
+            now.minusDays(2),
+            new java.math.BigDecimal("100"),
+            new java.math.BigDecimal("10"),
+            new java.math.BigDecimal("8"),
+            new java.math.BigDecimal(".3"),
+            null,
+            null,
+            "https://example.test/financial",
+            raw,
+            com.alphascope.common.util.Jsons.hash(raw));
+    try (var ignored = TenantContext.bind(new UserView(1, "admin", "ADMIN"))) {
+      financialSyncMapper.insert(market.instrument("600999.SH").getId(), statement, now);
+      var record = financials.reports("600999.SH", now.toLocalDate().plusDays(1)).getFirst();
+      assertEquals(raw, record.getRawPayload());
+      assertEquals(
+          record.getContentHash(), com.alphascope.common.util.Jsons.hash(record.getRawPayload()));
+    }
+  }
+
+  @Test
+  void positionUpdatesWriteHistoryAndBackfillsDoNotOverwriteCurrentOrLeakAcrossUsers()
+      throws Exception {
+    Actor alice = register("historyalice"), bob = register("historybob");
+    var today = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+    try (var ignored = TenantContext.bind(alice.user)) {
+      portfolio.position(
+          "300476.SZ",
+          new com.alphascope.portfolio.dto.PositionInput(
+              new java.math.BigDecimal("100"), new java.math.BigDecimal("20"), today, "PCB,AI算力"));
+      portfolio.position(
+          "300476.SZ",
+          new com.alphascope.portfolio.dto.PositionInput(
+              new java.math.BigDecimal("200"), new java.math.BigDecimal("21"), today, "PCB,AI算力"));
+      assertEquals(
+          0,
+          new java.math.BigDecimal("200")
+              .compareTo(portfolio.context(today).positions().getFirst().getQuantity()));
+      portfolio.position(
+          "300476.SZ",
+          new com.alphascope.portfolio.dto.PositionInput(
+              new java.math.BigDecimal("999"),
+              new java.math.BigDecimal("10"),
+              today.minusDays(1),
+              "事后补录"));
+      assertEquals(
+          0,
+          new java.math.BigDecimal("200")
+              .compareTo(portfolio.positions().getFirst().getQuantity()));
+      assertTrue(
+          portfolio.context(today.minusDays(1)).positions().isEmpty(), "今天补填的旧业务日不能进入昨天实际已知的持仓");
+      assertTrue(portfolio.context(today).positions().getFirst().isHistoryVerified());
+    }
+    try (var ignored = TenantContext.bind(bob.user)) {
+      assertTrue(portfolio.context(today).positions().isEmpty());
+    }
+  }
+
+  @Test
+  void personalFundingContextRemainsPrivateAcrossTenants() throws Exception {
+    Actor alice = register("contextalice"), bob = register("contextbob");
+    try (var ignored = TenantContext.bind(alice.user)) {
+      portfolio.account(
+          new com.alphascope.portfolio.dto.AccountInput(
+              new java.math.BigDecimal("100000"),
+              LocalDate.of(2026, 10, 30),
+              new java.math.BigDecimal("5000"),
+              new java.math.BigDecimal("30000"),
+              LocalDate.of(2027, 1, 1),
+              "计划用款"));
+      assertEquals(
+          0, new java.math.BigDecimal("5000").compareTo(portfolio.account().getRiskBudget()));
+      assertEquals("计划用款", portfolio.positionsView().account().fundsPurpose());
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              portfolio.account(
+                  new com.alphascope.portfolio.dto.AccountInput(
+                      new java.math.BigDecimal("100"),
+                      LocalDate.of(2026, 10, 30),
+                      null,
+                      new java.math.BigDecimal("101"),
+                      null,
+                      null)));
+    }
+    try (var ignored = TenantContext.bind(bob.user)) {
+      assertNull(portfolio.account().getRiskBudget());
+      assertNull(portfolio.positionsView().account().fundsPurpose());
+    }
+  }
+
+  @Test
+  void planBusinessDatesDeduplicationAndValuationRemainTenantIsolated() throws Exception {
+    Actor alice = register("planalice"), bob = register("planbob");
+    long planId;
+    try (var ignored = TenantContext.bind(alice.user)) {
+      var plan = new com.alphascope.planning.entity.ResearchPlan();
+      plan.setSymbol("300476.SZ");
+      plan.setHorizon("SHORT");
+      plan.setActionCode("OPEN_PULLBACK");
+      plan.setSnapshotJson("{\"research\":{\"asOf\":\"2026-10-28\",\"name\":\"测试计划\"}}");
+      plan.setSnapshotHash(com.alphascope.common.util.Jsons.hash(plan.getSnapshotJson()));
+      planMapper.insert(plan);
+      planId = plan.getId();
+      assertEquals(planId, planMapper.identicalPlan(plan).getId());
+      assertThrows(
+          org.springframework.dao.DuplicateKeyException.class, () -> planMapper.insert(plan));
+      for (var day : java.util.List.of("2026-10-29", "2026-10-30", "2026-10-28")) {
+        var review = new com.alphascope.planning.entity.PlanReview();
+        review.setPlanId(planId);
+        review.setReviewJson(
+            com.alphascope.common.util.Jsons.write(
+                new com.alphascope.planning.vo.PlanReviewView(
+                    planId,
+                    LocalDate.parse(day),
+                    day.endsWith("29") ? "ORIGINAL_STOP_BREACHED" : "DATA_INSUFFICIENT",
+                    "日期证据",
+                    90.0,
+                    100.0,
+                    "WAIT",
+                    java.util.List.of())));
+        review.setReviewHash(com.alphascope.common.util.Jsons.hash(review.getReviewJson()));
+        planMapper.review(review);
+        assertNotNull(planMapper.identicalReview(review));
+        assertThrows(
+            org.springframework.dao.DuplicateKeyException.class, () -> planMapper.review(review));
+      }
+      var query = new com.alphascope.planning.dto.PlanQuery();
+      query.setAsOf(LocalDate.of(2026, 10, 29));
+      assertEquals(
+          LocalDate.of(2026, 10, 29), plans.page(query).items().getFirst().latestReviewDate());
+      query.setAsOf(LocalDate.of(2026, 10, 30));
+      assertEquals(
+          LocalDate.of(2026, 10, 30), plans.page(query).items().getFirst().latestReviewDate());
+      var originalRisk = plans.pageWithOriginalRisk(query).items().getFirst();
+      assertEquals("ORIGINAL_STOP_BREACHED", originalRisk.latestReviewStatus());
+      assertEquals(LocalDate.of(2026, 10, 29), originalRisk.latestReviewDate());
+      plans.acknowledge(planId, new com.alphascope.planning.dto.PlanReviewInput(query.getAsOf()));
+      assertTrue(plans.page(query).items().getFirst().acknowledged());
+      query.setAsOf(LocalDate.of(2026, 10, 29));
+      assertFalse(plans.page(query).items().getFirst().acknowledged());
+      var thesis =
+          new com.alphascope.fundamental.dto.ValuationThesisInput(
+              "300476.SZ",
+              LocalDate.of(2026, 10, 30),
+              LocalDate.of(2026, 11, 30),
+              java.math.BigDecimal.ONE,
+              java.math.BigDecimal.valueOf(2),
+              java.math.BigDecimal.TEN,
+              java.math.BigDecimal.valueOf(20),
+              java.math.BigDecimal.valueOf(.2),
+              true,
+              "人工核对年化每股收益与行业倍数，采用公开财报证据",
+              "连续现金流恶化后撤销本情景",
+              "https://example.test/financial",
+              "EASTMONEY_FINANCIAL");
+      investmentEvidence.saveThesis(thesis);
+      assertEquals(
+          thesis,
+          investmentEvidence.thesis(
+              new com.alphascope.fundamental.dto.EvidenceQuery(
+                  "300476.SZ", LocalDate.of(2026, 10, 30))));
+    }
+    try (var ignored = TenantContext.bind(bob.user)) {
+      assertNull(planMapper.get(planId));
+      assertTrue(
+          planMapper
+              .latestReviews(
+                  new com.alphascope.planning.dto.PlanReviewBatchQuery(
+                      java.util.List.of(planId), LocalDate.of(2026, 10, 30)))
+              .isEmpty());
+      assertNull(
+          investmentEvidence.thesis(
+              new com.alphascope.fundamental.dto.EvidenceQuery(
+                  "300476.SZ", LocalDate.of(2026, 10, 30))));
+    }
+    mvc.perform(
+            post("/api/v1/admin/corporate-actions")
+                .cookie(alice.session)
+                .header("Origin", "https://research.example.test")
+                .header("X-CSRF-Token", alice.csrf)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isForbidden());
+  }
+
   @Test
   void publicSessionsRolesAndResearchStayIsolatedAcrossBackgroundExecution() throws Exception {
     mvc.perform(get("/api/v1/watchlist"))
@@ -221,8 +507,6 @@ class PublicTenantIntegrationTest {
         .andExpect(jsonPath("$.data.items.length()").value(0));
   }
 
-  @Autowired com.alphascope.planning.mapper.ResearchPlanMapper planMapper;
-
   @Test
   void personalPlansAndReviewsCannotBeReadOrArchivedAcrossUsers() throws Exception {
     var alice = register("plan-alice");
@@ -300,19 +584,21 @@ class PublicTenantIntegrationTest {
     String snapshot = "{\"research\":{\"name\":\"分页测试\",\"asOf\":\"2026-11-17\"}}";
     for (int i = 0; i < 121; i++)
       fixtureJdbc.update(
-          "INSERT INTO research_plan(tenant_id,symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES(?,?,'SHORT','TEST',?,REPEAT('a',64))",
+          "INSERT INTO research_plan(tenant_id,symbol,horizon,action_code,snapshot_json,snapshot_hash) VALUES(?,?,'SHORT','TEST',?,SHA2(?,256))",
           alice.user.id(),
           i % 2 == 0 ? "600000.SH" : "000001.SZ",
-          snapshot);
+          snapshot,
+          "plan-" + i);
     long id =
         fixtureJdbc.queryForObject(
             "SELECT MAX(id) FROM research_plan WHERE tenant_id=?", Long.class, alice.user.id());
     for (int i = 0; i < 25; i++)
       fixtureJdbc.update(
-          "INSERT INTO research_plan_review(tenant_id,plan_id,review_json,review_hash) VALUES(?,?,?,REPEAT('b',64))",
+          "INSERT INTO research_plan_review(tenant_id,plan_id,review_json,review_hash) VALUES(?,?,?,SHA2(?,256))",
           alice.user.id(),
           id,
-          "{}");
+          "{}",
+          "review-" + i);
     try (var ignored = TenantContext.bind(alice.user)) {
       var query = new com.alphascope.planning.dto.PlanQuery();
       query.setSize(20);
@@ -340,6 +626,51 @@ class PublicTenantIntegrationTest {
           planMapper.reviews(new com.alphascope.planning.dto.PlanReviewQuery(id, 20, 0)).isEmpty());
     }
     mvc.perform(get("/api/v1/plans/" + id).cookie(bob.session())).andExpect(status().isNotFound());
+  }
+
+  @Autowired com.alphascope.market.mapper.MarketBreadthMapper breadthMapper;
+  @Autowired org.springframework.transaction.PlatformTransactionManager fixtureTransactions;
+
+  @Test
+  void fullSnapshotReadsLargeOriginalWithoutSortingItsPayload() {
+    new org.springframework.transaction.support.TransactionTemplate(fixtureTransactions)
+        .executeWithoutResult(
+            tx -> {
+              Integer old =
+                  fixtureJdbc.queryForObject("SELECT @@session.sort_buffer_size", Integer.class);
+              try {
+                fixtureJdbc.execute("SET SESSION sort_buffer_size=32768");
+                for (int i = 0; i < 2; i++) {
+                  String raw = "{\"padding\":\"" + "x".repeat(1024 * 1024) + i + "\"}";
+                  fixtureJdbc.update(
+                      "INSERT INTO market_breadth_snapshot(trade_date,universe_scope,source,content_hash,metrics_json,raw_json,fetched_at) VALUES('2026-11-15','FULL_A','EASTMONEY',?,'{}',?,NOW())",
+                      com.alphascope.common.util.Jsons.hash(raw),
+                      raw);
+                }
+                var query =
+                    com.alphascope.market.dto.ResearchSnapshotQuery.builder()
+                        .date(LocalDate.of(2026, 11, 15))
+                        .source("EASTMONEY")
+                        .loadRaw(true)
+                        .build();
+                var row = breadthMapper.fullForDate(query);
+                assertNotNull(row);
+                assertTrue(row.getRawJson().length() > 1024 * 1024);
+                assertTrue(row.getRawJson().endsWith("1\"}"));
+                assertNull(
+                    breadthMapper
+                        .fullForDate(
+                            com.alphascope.market.dto.ResearchSnapshotQuery.builder()
+                                .date(query.date())
+                                .source(query.source())
+                                .loadRaw(false)
+                                .build())
+                        .getRawJson());
+              } finally {
+                fixtureJdbc.execute("SET SESSION sort_buffer_size=" + old);
+                tx.setRollbackOnly();
+              }
+            });
   }
 
   private Actor register(String name) throws Exception {

@@ -13,6 +13,9 @@ import lombok.Data;
 @Data
 @Builder
 public class PositionWriteCommand {
+  /** 人工相关风险标签，可重叠，不是官方行业。 */
+  private String riskGroup;
+
   /** 证券主键，关联 instrument.id。 */
   private long instrumentId;
 

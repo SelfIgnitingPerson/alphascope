@@ -10,6 +10,7 @@ export interface WatchItem extends Instrument {
 }
 
 export interface Position extends Instrument {
+  risk_group?: string | null;
   /** 当前手工持仓数量，单位股；必须非负。 */
   quantity: Numeric;
   /** 人工登记的每股成本，单位人民币元；必须非负。 */
@@ -19,6 +20,12 @@ export interface Position extends Instrument {
 }
 
 export interface Account {
+  cash_balance?: Numeric | null;
+  positions_complete?: boolean | null;
+  risk_budget?: Numeric | null;
+  liquidity_reserve?: Numeric | null;
+  funds_needed_on?: string | null;
+  funds_purpose?: string | null;
   /** 手工登记的投资资产总额，单位人民币元；未知时不能推算持仓集中度。 */
   total_assets?: Numeric | null;
   /** 本次资产或产业指标登记对应的业务日期。 */

@@ -30,6 +30,10 @@ import org.slf4j.MDC;
  * @author chenxuefeng
  */
 public class ResearchDataRouter implements AutoCloseable {
+  private static final int SNAPSHOT_ATTEMPTS = 3;
+  private static final java.util.Set<String> TRANSIENT_FAILURES =
+      java.util.Set.of(
+          "CONNECTION_CLOSED", "CONNECTION_FAILED", "NETWORK_TIMEOUT", "TRANSPORT_IO_FAILURE");
   private final List<ResearchDataProvider> providers;
   private final Duration cooldown;
   private final Clock clock;
@@ -63,6 +67,29 @@ public class ResearchDataRouter implements AutoCloseable {
   }
 
   /**
+   * 按顺序采集三所截面。覆盖核验失败时也会切换，成功前不发布候选数据。
+   *
+   * @param date 已确认交易日
+   * @param verify 三所名册、价格与停牌的发布校验
+   * @return 第一个通过校验的真实结果
+   * @param <T> 已核验的返回对象
+   */
+  public <T> T fullSnapshot(LocalDate date, Function<ResearchMarketSnapshot, T> verify) {
+    return route(
+        MarketCapability.MARKET_SNAPSHOT,
+        null,
+        true,
+        provider -> {
+          var snapshot = provider.snapshot(date);
+          if (snapshot == null
+              || !date.equals(snapshot.date())
+              || !provider.code().equals(snapshot.source()))
+            throw new IllegalStateException("FULL_A_SNAPSHOT_IDENTITY_MISMATCH");
+          return verify.apply(snapshot);
+        });
+  }
+
+  /**
    * 取得与原价同源的因子，禁止跨源拼接。
    *
    * @param request 实际来源和覆盖日期要求
@@ -81,6 +108,19 @@ public class ResearchDataRouter implements AutoCloseable {
           }
           return value;
         });
+  }
+
+  /**
+   * 按日读取 BaoStock 同源除权事件，沿用该来源的权限、限流与访问保护。
+   *
+   * @param date 已确认的交易日
+   * @return 原始事件批次
+   */
+  public List<Map<String, String>> baoStockFactorEvents(LocalDate date) {
+    return route(
+        MarketCapability.ADJUSTMENT_FACTORS,
+        "BAOSTOCK",
+        provider -> provider.dailyFactorEvents(date));
   }
 
   /**
@@ -178,13 +218,33 @@ public class ResearchDataRouter implements AutoCloseable {
       MarketCapability capability,
       String requiredSource,
       Function<ResearchDataProvider, T> action) {
+    return route(capability, requiredSource, false, action);
+  }
+
+  private synchronized <T> T route(
+      MarketCapability capability,
+      String requiredSource,
+      boolean fullMarket,
+      Function<ResearchDataProvider, T> action) {
     List<String> failures = new ArrayList<>();
-    for (ResearchDataProvider provider : providers) {
+    var ordered =
+        fullMarket
+            ? java.util.stream.Stream.concat(
+                    providers.stream().filter(p -> "EASTMONEY".equals(p.code())),
+                    providers.stream().filter(p -> !"EASTMONEY".equals(p.code())))
+                .toList()
+            : providers;
+    for (ResearchDataProvider provider : ordered) {
       ExecutionContext.checkpoint();
       if (requiredSource != null && !requiredSource.equals(provider.code())) {
         continue;
       }
       if (!provider.capabilities().contains(capability)) {
+        continue;
+      }
+      if (!fullMarket && provider.fullMarketOnly()) continue;
+      if (fullMarket && !provider.fullMarketSnapshots()) {
+        failures.add(provider.code() + ":FULL_A_SCOPE_UNSUPPORTED");
         continue;
       }
       if (provider.code().equals("BAOSTOCK") && BaoStockAccessGuard.standard().blocked()) {
@@ -207,16 +267,37 @@ public class ResearchDataRouter implements AutoCloseable {
       }
       String previous = MDC.get("provider");
       MDC.put("provider", provider.code());
+      int attempts = 0;
       try {
         if (licenses != null)
           for (String source : provider.requiredSources()) licenses.require(source, "COLLECT");
-        T result = action.apply(provider);
-        ExecutionContext.checkpoint();
-        state.success = clock.instant();
-        state.error = null;
-        state.diagnostic = null;
-        state.retryAt = null;
-        return result;
+        while (true) {
+          attempts++;
+          try {
+            T result = action.apply(provider);
+            ExecutionContext.checkpoint();
+            state.success = clock.instant();
+            state.error = null;
+            state.diagnostic = null;
+            state.retryAt = null;
+            return result;
+          } catch (RuntimeException e) {
+            ExecutionContext.checkpoint();
+            if (!fullMarket
+                || attempts >= SNAPSHOT_ATTEMPTS
+                || e instanceof TaskStoppedException
+                || !retryable(e)
+                || accessCooling(provider)) throw e;
+            org.slf4j.LoggerFactory.getLogger(getClass())
+                .warn(
+                    "full_market_retry channel={} attempt={}/{} diagnostic={}",
+                    provider.code(),
+                    attempts,
+                    SNAPSHOT_ATTEMPTS,
+                    FailureDiagnostics.from(e).code());
+            pause(attempts);
+          }
+        }
       } catch (TaskStoppedException e) {
         throw e;
       } catch (ProviderDataUnavailableException e) {
@@ -236,8 +317,10 @@ public class ResearchDataRouter implements AutoCloseable {
                 capability,
                 state.error,
                 e.getClass().getSimpleName());
-        state.retryAt = clock.instant().plus(cooldown);
-        failures.add(provider.code() + ":" + state.error);
+        // 持久限流仍由供应商保护；普通校验失败保留原因，避免影响其他业务日期。
+        if (!fullMarket || retryable(e)) state.retryAt = clock.instant().plus(cooldown);
+        String detail = fullMarket && attempts > 1 ? ":" + attempts : "";
+        failures.add(provider.code() + ":" + state.error + detail);
       } finally {
         if (previous == null) {
           MDC.remove("provider");
@@ -251,6 +334,27 @@ public class ResearchDataRouter implements AutoCloseable {
             + capability
             + "；不回退模拟）："
             + (failures.isEmpty() ? "NO_CONFIGURED_CAPABLE_SOURCE" : String.join(",", failures)));
+  }
+
+  private boolean accessCooling(ResearchDataProvider provider) {
+    var until = provider.blockedUntil();
+    return until != null && clock.instant().isBefore(until);
+  }
+
+  private static boolean retryable(RuntimeException failure) {
+    return TRANSIENT_FAILURES.contains(FailureDiagnostics.from(failure).code())
+        || "PUBLIC_MARKET_HTTP_RETRYABLE".equals(failure.getMessage());
+  }
+
+  private static void pause(int seconds) {
+    try {
+      Thread.sleep(Duration.ofSeconds(seconds));
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      ExecutionContext.checkpoint();
+      throw new IllegalStateException("PUBLIC_MARKET_INTERRUPTED", interrupted);
+    }
+    ExecutionContext.checkpoint();
   }
 
   private String key(String code, MarketCapability capability) {

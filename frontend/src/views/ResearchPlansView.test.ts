@@ -9,6 +9,17 @@ vi.mock('../api/plans', () => ({
   getPlanReviews: vi.fn(),
   reviewPlan: vi.fn(),
   archivePlan: vi.fn(),
+  getPlanTodos: vi.fn().mockResolvedValue({
+    total: 0,
+    risk: 0,
+    changed: 0,
+    data: 0,
+    due: 0,
+    acknowledged: 0,
+    items: [],
+  }),
+  followupPlans: vi.fn(),
+  acknowledgePlan: vi.fn(),
 }));
 const table = defineComponent({
   props: { data: { type: Array, default: () => [] } },
@@ -160,7 +171,7 @@ it('opens the saved plan directly, reads reviews without writing and only review
     await button.trigger('click');
     await flushPromises();
     expect(reviewPlan).toHaveBeenCalledExactlyOnceWith(7, '2026-11-18');
-    expect(getPlans).toHaveBeenCalledTimes(2);
+    expect(getPlans).toHaveBeenCalledTimes(3);
   } finally {
     w.unmount();
   }

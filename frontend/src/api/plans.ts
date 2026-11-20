@@ -28,11 +28,13 @@ export type PlanSummary = Pick<
   symbol: string;
   name: string;
   asOf: string;
+  acknowledged?: boolean;
   latestReviewDate?: string | null;
   latestReviewStatus?: string | null;
   latestReviewExplanation?: string | null;
 };
 export interface PlanFilters {
+  asOf?: string;
   page: number;
   size: number;
   symbol?: string;
@@ -55,3 +57,23 @@ export const reviewPlan = (id: number, date: string) =>
 export const getPlanReviews = (id: number, page = 1, signal?: AbortSignal) =>
   api<PageResponse<PlanReview>>(`/plans/${id}/reviews?${query({ page, size: 20 })}`, { signal });
 export const archivePlan = (id: number) => api<null>(`/plans/${id}/archive`, write('POST'));
+
+export interface PlanTodos {
+  date: string;
+  total: number;
+  risk: number;
+  changed: number;
+  data: number;
+  due: number;
+  acknowledged: number;
+  items: PlanSummary[];
+}
+export const getPlanTodos = (asOf: string, signal?: AbortSignal) =>
+  api<PlanTodos>(`/plans/todos?${query({ asOf })}`, { signal });
+export const followupPlans = (date: string) =>
+  api<{ reviewed: number; remaining: number; issues: string[] }>(
+    '/plans/review-due',
+    write('POST', { date }),
+  );
+export const acknowledgePlan = (id: number, date: string) =>
+  api<null>(`/plans/${id}/acknowledge`, write('POST', { date }));
